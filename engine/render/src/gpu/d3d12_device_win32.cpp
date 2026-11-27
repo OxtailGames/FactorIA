@@ -199,6 +199,17 @@ Result<void> D3d12Device::init_adapter(const D3d12Options& options) {
                     "without it. Install the Windows optional feature 'Graphics Tools' to get it",
                     hr_text(hr));
         }
+        // DRED, with the debug layer: a removal the debug layer has no message for (a fault on the GPU, a driver or
+        // WARP that gives up mid-list) still says which command of which list the GPU was at. The settings belong to
+        // the process and hold for the devices made after this one too; the runtime has them without the Graphics
+        // Tools, so a debug device on a machine without the debug layer gets them as well.
+        Com<ID3D12DeviceRemovedExtendedDataSettings> dred;
+        if (SUCCEEDED(D3D12GetDebugInterface(__uuidof(ID3D12DeviceRemovedExtendedDataSettings), dred.put_void())) &&
+            dred) {
+            dred->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+            dred->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+            dred_ = true;
+        }
     }
     HRESULT hr = CreateDXGIFactory2(factoryFlags, __uuidof(IDXGIFactory4), factory_.put_void());
     if (FAILED(hr) && factoryFlags != 0)  // the DXGI debug layer is missing: the D3D12 one still works
@@ -428,6 +439,22 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
                 "no bindless table (D3d12Options::bindlessDescriptors {} is taken as 0; set it to 0 to silence this)",
                 adapterName_, bindlessDescriptors_);
         bindlessDescriptors_ = 0;
+    }
+    // The tier is what the device says; whether its runtime takes the table is asked too, with the table itself: the
+    // D3D12 runtime of Windows Server 2022 (10.0.20348) with the WARP of the Microsoft.Direct3D.WARP NuGet package
+    // (1.0.22) says tier 2 or more and still refuses every root signature that holds an unbounded SRV range (debug
+    // layer message 699, CREATE_ROOT_SIGNATURE_NOT_SUPPORTED_ON_DEVICE). There the device makes no bindless table, so
+    // every root signature it makes is one the runtime takes.
+    if (bindlessDescriptors_ > 0) {
+        std::string why;
+        if (!bindless_table_accepted(why)) {
+            FA_WARN("render",
+                    "gpu d3d12: {} has resource binding tier {}, but its D3D12 runtime refuses the bindless table's "
+                    "unbounded SRV range ({}): the device makes no bindless table (D3d12Options::bindlessDescriptors "
+                    "{} is taken as 0; set it to 0 to silence this, or update Windows or the GPU driver)",
+                    adapterName_, bindingTier_, why, bindlessDescriptors_);
+            bindlessDescriptors_ = 0;
+        }
     }
     if (auto r = viewHeap_.init(device_.get(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, bindlessDescriptors_,
                                 std::uint32_t(options.frameViewDescriptors), framesInFlight_, "fa-d3d12-shader-views");
@@ -791,7 +818,98 @@ void D3d12Device::drain_messages() {
 
 std::string D3d12Device::removed_reason() const {
     const HRESULT r = device_->GetDeviceRemovedReason();
-    return r == S_OK ? std::string() : "; the device was removed: " + hr_text(r);
+    if (r == S_OK) return {};
+    if (dred_ && !dredLogged_.exchange(true)) log_dred();
+    return "; the device was removed: " + hr_text(r);
+}
+
+namespace {
+
+const char* dred_op_name(D3D12_AUTO_BREADCRUMB_OP op) {
+    switch (op) {
+        case D3D12_AUTO_BREADCRUMB_OP_SETMARKER: return "SetMarker";
+        case D3D12_AUTO_BREADCRUMB_OP_BEGINEVENT: return "BeginEvent";
+        case D3D12_AUTO_BREADCRUMB_OP_ENDEVENT: return "EndEvent";
+        case D3D12_AUTO_BREADCRUMB_OP_DRAWINSTANCED: return "DrawInstanced";
+        case D3D12_AUTO_BREADCRUMB_OP_DRAWINDEXEDINSTANCED: return "DrawIndexedInstanced";
+        case D3D12_AUTO_BREADCRUMB_OP_EXECUTEINDIRECT: return "ExecuteIndirect";
+        case D3D12_AUTO_BREADCRUMB_OP_DISPATCH: return "Dispatch";
+        case D3D12_AUTO_BREADCRUMB_OP_COPYBUFFERREGION: return "CopyBufferRegion";
+        case D3D12_AUTO_BREADCRUMB_OP_COPYTEXTUREREGION: return "CopyTextureRegion";
+        case D3D12_AUTO_BREADCRUMB_OP_COPYRESOURCE: return "CopyResource";
+        case D3D12_AUTO_BREADCRUMB_OP_COPYTILES: return "CopyTiles";
+        case D3D12_AUTO_BREADCRUMB_OP_RESOLVESUBRESOURCE: return "ResolveSubresource";
+        case D3D12_AUTO_BREADCRUMB_OP_CLEARRENDERTARGETVIEW: return "ClearRenderTargetView";
+        case D3D12_AUTO_BREADCRUMB_OP_CLEARUNORDEREDACCESSVIEW: return "ClearUnorderedAccessView";
+        case D3D12_AUTO_BREADCRUMB_OP_CLEARDEPTHSTENCILVIEW: return "ClearDepthStencilView";
+        case D3D12_AUTO_BREADCRUMB_OP_RESOURCEBARRIER: return "ResourceBarrier";
+        case D3D12_AUTO_BREADCRUMB_OP_EXECUTEBUNDLE: return "ExecuteBundle";
+        case D3D12_AUTO_BREADCRUMB_OP_PRESENT: return "Present";
+        case D3D12_AUTO_BREADCRUMB_OP_RESOLVEQUERYDATA: return "ResolveQueryData";
+        case D3D12_AUTO_BREADCRUMB_OP_BEGINSUBMISSION: return "BeginSubmission";
+        case D3D12_AUTO_BREADCRUMB_OP_ENDSUBMISSION: return "EndSubmission";
+        case D3D12_AUTO_BREADCRUMB_OP_WRITEBUFFERIMMEDIATE: return "WriteBufferImmediate";
+        case D3D12_AUTO_BREADCRUMB_OP_BUILDRAYTRACINGACCELERATIONSTRUCTURE:
+            return "BuildRaytracingAccelerationStructure";
+        case D3D12_AUTO_BREADCRUMB_OP_COPYRAYTRACINGACCELERATIONSTRUCTURE: return "CopyRaytracingAccelerationStructure";
+        default: return nullptr;
+    }
+}
+
+}  // namespace
+
+void D3d12Device::log_dred() const {
+    Com<ID3D12DeviceRemovedExtendedData> dred = device_.as<ID3D12DeviceRemovedExtendedData>();
+    if (!dred) return;
+    std::string text = "gpu d3d12: DRED, what the GPU was doing when the device was removed:";
+    D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT crumbs{};
+    if (SUCCEEDED(dred->GetAutoBreadcrumbsOutput(&crumbs))) {
+        // Only the lists the GPU had started and not finished: a list it finished (or never began) is not the cause.
+        // The node list is bounded by DRED itself; the count below is a safety net far above it.
+        int lists = 0;
+        for (const D3D12_AUTO_BREADCRUMB_NODE* n = crumbs.pHeadAutoBreadcrumbNode; n && lists < 64; n = n->pNext) {
+            const std::uint32_t done = n->pLastBreadcrumbValue ? *n->pLastBreadcrumbValue : 0;
+            if (n->BreadcrumbCount == 0 || done >= n->BreadcrumbCount) continue;
+            ++lists;
+            text += "\n  list '" +
+                    (n->pCommandListDebugNameW ? narrow(n->pCommandListDebugNameW) : std::string("unnamed")) +
+                    "' on queue '" +
+                    (n->pCommandQueueDebugNameW ? narrow(n->pCommandQueueDebugNameW) : std::string("unnamed")) +
+                    "': " + std::to_string(done) + " of " + std::to_string(n->BreadcrumbCount) +
+                    " commands finished; around the first unfinished one:";
+            const std::uint32_t from = done > 4 ? done - 4 : 0;
+            const std::uint32_t to = std::min<std::uint32_t>(n->BreadcrumbCount, done + 4);
+            for (std::uint32_t i = from; i < to && n->pCommandHistory; ++i) {
+                const char* name = dred_op_name(n->pCommandHistory[i]);
+                text += (i == done ? " [" : " ") +
+                        (name ? std::string(name) : "op " + std::to_string(int(n->pCommandHistory[i]))) +
+                        (i == done ? "]" : "");
+            }
+        }
+        if (lists == 0) text += "\n  no command list was unfinished (the removal came between lists)";
+    } else {
+        text += "\n  no breadcrumbs";
+    }
+    D3D12_DRED_PAGE_FAULT_OUTPUT fault{};
+    if (SUCCEEDED(dred->GetPageFaultAllocationOutput(&fault)) && fault.PageFaultVA != 0) {
+        text += std::format("\n  page fault at GPU address 0x{:x}", std::uint64_t(fault.PageFaultVA));
+        int shown = 0;
+        for (const D3D12_DRED_ALLOCATION_NODE* a = fault.pHeadExistingAllocationNode; a && shown < 8;
+             a = a->pNext, ++shown)
+            text += std::string(shown == 0 ? "; live there: " : ", ") + (a->ObjectNameW   ? narrow(a->ObjectNameW)
+                                                                         : a->ObjectNameA ? std::string(a->ObjectNameA)
+                                                                                          : "unnamed");
+        shown = 0;
+        for (const D3D12_DRED_ALLOCATION_NODE* a = fault.pHeadRecentFreedAllocationNode; a && shown < 8;
+             a = a->pNext, ++shown)
+            text += std::string(shown == 0 ? "; freed there recently: " : ", ") +
+                    (a->ObjectNameW   ? narrow(a->ObjectNameW)
+                     : a->ObjectNameA ? std::string(a->ObjectNameA)
+                                      : "unnamed");
+    } else {
+        text += "\n  no page fault recorded";
+    }
+    FA_ERROR("render", "{}", text);
 }
 
 D3d12Counters D3d12Device::counters() const {

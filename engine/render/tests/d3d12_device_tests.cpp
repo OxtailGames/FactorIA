@@ -372,8 +372,9 @@ TEST_CASE("d3d12: a WARP device answers what it can do") {
     step = "resource binding tier";
     CHECK(dev->resource_binding_tier() >= 1);
     CHECK(dev->resource_binding_tier() <= 3);
-    if (dev->resource_binding_tier() >= 2)
-        CHECK(dev->bindless_descriptors() == std::uint32_t(D3d12Options{}.bindlessDescriptors));
+    if (dev->resource_binding_tier() >= 2)  // 0 too where the runtime refuses the unbounded range (and warned)
+        CHECK((dev->bindless_descriptors() == std::uint32_t(D3d12Options{}.bindlessDescriptors) ||
+               dev->bindless_descriptors() == 0));
     else
         CHECK(dev->bindless_descriptors() == 0);  // tier 1 has no unbounded ranges: no bindless table
     step = "the debug layer said nothing";
@@ -870,13 +871,15 @@ TEST_CASE("d3d12: a full descriptor heap fails a view with a teaching error, and
 
     step = "the shader-visible heap: a bindless range and 8 descriptors per frame";
     d3d12::ShaderVisibleHeap& heap = dev->view_heap();
-    CHECK(heap.reserved().count == 16);
+    // A device whose runtime refuses the unbounded range makes no bindless table, so nothing is reserved.
+    const std::uint32_t bindless = dev->features().bindless ? 16u : 0u;
+    CHECK(heap.reserved().count == bindless);
     CHECK(heap.alloc(8).ok());
     CHECK(!heap.alloc(1).ok());
     dev->commit();
     const d3d12::ShaderVisibleHeap::Span next = heap.alloc(8);
     CHECK(next.ok());
-    CHECK(next.index >= 16);  // never inside the bindless range
+    CHECK(next.index >= bindless);  // never inside the bindless range
 
     step = "the debug layer said nothing";
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
@@ -1467,7 +1470,9 @@ TEST_CASE("d3d12: equal descs share a PSO and a root signature; a root signature
     CHECK(lay->viewTable[1] == 1);
     CHECK(lay->samplerTable[0] == -1);
     CHECK(lay->samplerTable[1] == 2);
-    CHECK(lay->bindlessTable == 3);  // D3d12Options::bindlessDescriptors > 0: every root signature sees the table
+    // D3d12Options::bindlessDescriptors > 0: every root signature sees the table, unless the device made none (tier 1,
+    // or a runtime that refuses the unbounded range).
+    CHECK(lay->bindlessTable == (dev->features().bindless ? 3 : -1));
     CHECK(lay->viewCount[1] == 2);
     CHECK(lay->samplerCount[1] == 2);
     CHECK(lay->viewStage[1] == 1);
@@ -2840,7 +2845,8 @@ TEST_CASE("d3d12: every live texture view has its own bindless slot, which a sha
     auto dev = make_warp();
     if (!dev) return;
     if (!dev->features().bindless) {
-        MESSAGE("d3d12: skipped, resource binding tier 1 has no bindless table");
+        MESSAGE("d3d12: skipped, no bindless table (resource binding tier 1, or a runtime that refuses its unbounded "
+                "range)");
         return;
     }
     const View red = make_texture(*dev, 1, 1, {255, 0, 0, 255});

@@ -698,6 +698,52 @@ Shader D3d12Device::make_shader(const ShaderDesc& desc) {
     return Shader{id};
 }
 
+bool D3d12Device::bindless_table_accepted(std::string& why) {
+    // The table exactly as root_layout adds it to every root signature, alone, with a render signature's flags.
+    D3D12_DESCRIPTOR_RANGE range{};
+    range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    range.NumDescriptors = UINT_MAX;  // unbounded
+    range.BaseShaderRegister = 0;
+    range.RegisterSpace = 1;
+    range.OffsetInDescriptorsFromTableStart = 0;
+    D3D12_ROOT_PARAMETER p{};
+    p.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    p.DescriptorTable.NumDescriptorRanges = 1;
+    p.DescriptorTable.pDescriptorRanges = &range;
+    p.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    D3D12_ROOT_SIGNATURE_DESC rd{};
+    rd.NumParameters = 1;
+    rd.pParameters = &p;
+    rd.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    Com<ID3DBlob> blob, messages;
+    HRESULT hr = D3D12SerializeRootSignature(&rd, D3D_ROOT_SIGNATURE_VERSION_1, blob.put(), messages.put());
+    if (FAILED(hr) || !blob) {
+        why = "D3D12SerializeRootSignature failed with " + hr_text(hr);
+        return false;
+    }
+    // A refusal is the answer: the debug layer stores none of the messages this one call makes (the filter init
+    // pushed is back on top afterwards).
+    bool filtered = false;
+    if (infoQueue_) {
+        D3D12_MESSAGE_SEVERITY all[] = {D3D12_MESSAGE_SEVERITY_CORRUPTION, D3D12_MESSAGE_SEVERITY_ERROR,
+                                        D3D12_MESSAGE_SEVERITY_WARNING, D3D12_MESSAGE_SEVERITY_INFO,
+                                        D3D12_MESSAGE_SEVERITY_MESSAGE};
+        D3D12_INFO_QUEUE_FILTER filter{};
+        filter.DenyList.NumSeverities = UINT(sizeof all / sizeof all[0]);
+        filter.DenyList.pSeverityList = all;
+        filtered = SUCCEEDED(infoQueue_->PushStorageFilter(&filter));
+    }
+    Com<ID3D12RootSignature> signature;
+    hr = device_->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), __uuidof(ID3D12RootSignature),
+                                      signature.put_void());
+    if (filtered) infoQueue_->PopStorageFilter();
+    if (FAILED(hr) || !signature) {
+        why = "CreateRootSignature failed with " + hr_text(hr) + removed_reason();
+        return false;
+    }
+    return true;
+}
+
 std::shared_ptr<const RootLayout> D3d12Device::root_layout(const ShaderDesc& desc, const ShaderInfo& info,
                                                            std::string& error) {
     const bool compute = info.compute;
