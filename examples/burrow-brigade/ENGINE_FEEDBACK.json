@@ -27,7 +27,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.14 (Light2D on a light buffer: shadows from solid tiles and no 16-light cap) in the roadmap.",
-        "Fixed in 0d306a3c (M29.14): Light2D.castShadows and Tilemap.occludesLight make solid tiles cast shadows (rays traced per light, at most 32 lights cast shadows, new stat lights2dShadowed). Burrow Brigade keeps its own fog of war (fog.js): the fog is game state (seen, half dark, enemies drawn only on clear tiles), not only a look, and the game has not been switched to shadow casting, so it keeps the lamp radius, falloff and ambient light too."
+        "Fixed in ffa0176f (M29.14): Light2D.castShadows and Tilemap.occludesLight make solid tiles cast shadows (rays traced per light, at most 32 lights cast shadows, new stat lights2dShadowed). Burrow Brigade keeps its own fog of war (fog.js): the fog is game state (seen, half dark, enemies drawn only on clear tiles), not only a look, and the game has not been switched to shadow casting, so it keeps the lamp radius, falloff and ambient light too."
       ]
     },
     {
@@ -53,7 +53,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.10 (Tilemap: tileset margin and spacing, setTile without rewriting the array) in the roadmap.",
-        "Fixed in 390af568 (M29.10): Tilemap.margin and Tilemap.spacing (pixels) are read by the 2D renderer, the tile count and validate. Burrow Brigade keeps its margin-free atlases (make_atlases.py, output committed): they work and re-cutting the art would change every tile and store screenshot for no gain in play."
+        "Fixed in 4852f918 (M29.10): Tilemap.margin and Tilemap.spacing (pixels) are read by the 2D renderer, the tile count and validate. Burrow Brigade keeps its margin-free atlases (make_atlases.py, output committed): they work and re-cutting the art would change every tile and store screenshot for no gain in play."
       ]
     },
     {
@@ -80,7 +80,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.10 (Tilemap: tileset margin and spacing, setTile without rewriting the array) in the roadmap.",
-        "Fixed in 390af568 (M29.10): tilemap.setTile(x, y, id) and getTile(x, y) change one tile in place (and 2D physics rebuilds only the changed colliders). Burrow Brigade dropped the dirty flag and the once-per-frame array write: shift.js sets each changed tile when the map changes (hazards go through the same map change), and fog.js sets one tile per changed fog state."
+        "Fixed in 4852f918 (M29.10): tilemap.setTile(x, y, id) and getTile(x, y) change one tile in place (and 2D physics rebuilds only the changed colliders). Burrow Brigade dropped the dirty flag and the once-per-frame array write: shift.js sets each changed tile when the map changes (hazards go through the same map change), and fog.js sets one tile per changed fog state."
       ]
     },
     {
@@ -107,7 +107,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.8 (Menu kit: optional shop and age gate, a Controls tab from the actions) in the roadmap.",
-        "Fixed in 2af58d1d (M29.8): the main menu no longer requires the shop and the age gate, and project.add_menu_kit adds them only when asked. Burrow Brigade's hand deletion was already done and stays (it has neither part); nothing was left to drop."
+        "Fixed in b7de6f5e (M29.8): the main menu no longer requires the shop and the age gate, and project.add_menu_kit adds them only when asked. Burrow Brigade's hand deletion was already done and stays (it has neither part); nothing was left to drop."
       ]
     },
     {
@@ -134,7 +134,7 @@
       "notes": [
         "2026-10-25: Replaced the tab with a per-player page (a button cycles Player 1 to 4, six rows from controls.ACTIONS).",
         "2026-10-25 triage: confirmed open; work package M29.8 (Menu kit: optional shop and age gate, a Controls tab from the actions) in the roadmap.",
-        "Fixed in 2af58d1d (M29.8): the Options Controls tab lists input.actions() without the ui_* ones, labelled with i18n.t, and Options.actions picks and orders them. Burrow Brigade keeps its own per-player Controls page in scripts/ui/options.js (one page per player, see FB-0006); the Options screen is being reworked by M29.19, so it was not touched here."
+        "Fixed in b7de6f5e (M29.8): the Options Controls tab lists input.actions() without the ui_* ones, labelled with i18n.t, and Options.actions picks and orders them. Burrow Brigade keeps its own per-player Controls page in scripts/ui/options.js (one page per player, see FB-0006); the Options screen is being reworked by M29.19, so it was not touched here."
       ]
     },
     {
@@ -163,7 +163,7 @@
       "notes": [
         "2026-10-25: scripts/game/controls.js keeps a binding table per seat in settings.playerBindings (keys and pad families), miner_input.js reads it with input.keyDown and input.gamepad(i).down/axis by binding name; the Options Controls page is per player and captures input.lastPressed().",
         "2026-10-25 triage: confirmed open; work package M29.15 (Per-player actions) in the roadmap.",
-        "Fixed in 4f6d6b63 (M29.15): input.player(i) gives each player their own actions bound to a pad or a key scheme, with pressed/held/axis, export/import of the rebinds and reset. Burrow Brigade's diggers read input.player(seat) (099f3d15: controls.js, miner_input.js, players.js) and its own binding table is gone."
+        "Fixed in 6a857ee9 (M29.15): input.player(i) gives each player their own actions bound to a pad or a key scheme, with pressed/held/axis, export/import of the rebinds and reset. Burrow Brigade's diggers read input.player(seat) (f8a09aa9: controls.js, miner_input.js, players.js) and its own binding table is gone."
       ]
     },
     {
@@ -188,7 +188,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.7 (Music: the scene-load bug, voice volume, synced layers, synth loudness) in the roadmap.",
-        "Fixed in 291f4b98 (M29.7): assets.synth_sound normalizes its presets to -18 LUFS, the loudness the validator accepts. Burrow Brigade keeps defaults.audio {normalize, targetLufs -18} in assets.json: it applies to every clip of the game, not only to synth presets."
+        "Fixed in 92f63db3 (M29.7): assets.synth_sound normalizes its presets to -18 LUFS, the loudness the validator accepts. Burrow Brigade keeps defaults.audio {normalize, targetLufs -18} in assets.json: it applies to every clip of the game, not only to synth presets."
       ]
     },
     {
@@ -214,8 +214,8 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work packages M29.1 (Light2D in the stats and the perf budget, a better choice of 16) and M29.14 (Light2D on a light buffer) in the roadmap.",
-        "Fixed in bef8abf1 (M29.1): the 16 kept lights are the ones that light the view (a light outside it is never kept over one inside), and more than 16 in view logs one warning per scene. On its own this did not let Burrow Brigade drop its pool.",
-        "Fixed in 0d306a3c (M29.14): lights render into a light buffer, so a frame keeps up to 256 Light2D. Burrow Brigade dropped the pool: lights.js gives every torch, crystal and magma source its own Light2D (no ENGINE_LIGHT_CAP, no ranking by distance to the miners), and the perf baselines now count the real lights (entities 144, lights 20, maxLights 24)."
+        "Fixed in dbc88aaa (M29.1): the 16 kept lights are the ones that light the view (a light outside it is never kept over one inside), and more than 16 in view logs one warning per scene. On its own this did not let Burrow Brigade drop its pool.",
+        "Fixed in ffa0176f (M29.14): lights render into a light buffer, so a frame keeps up to 256 Light2D. Burrow Brigade dropped the pool: lights.js gives every torch, crystal and magma source its own Light2D (no ENGINE_LIGHT_CAP, no ranking by distance to the miners), and the perf baselines now count the real lights (entities 144, lights 20, maxLights 24)."
       ]
     },
     {
@@ -241,7 +241,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.1 (Light2D in the stats and the perf budget, a better choice of 16); FB-0028 is a duplicate and its occurrences were merged here in the roadmap.",
-        "Fixed in bef8abf1 (M29.1): renderStats() has lights2d (drawn) and lights2dDropped (off view or over the budget of the frame), and perf.measure's lights, so maxLights, counts 2D lights. Burrow Brigade dropped its activeLights() helper: tests/light.test.js and tests/render_budget.test.js read lights2d and lights2dDropped, and the render budget test checks lights2d + lights2dDropped against the number of sources."
+        "Fixed in dbc88aaa (M29.1): renderStats() has lights2d (drawn) and lights2dDropped (off view or over the budget of the frame), and perf.measure's lights, so maxLights, counts 2D lights. Burrow Brigade dropped its activeLights() helper: tests/light.test.js and tests/render_budget.test.js read lights2d and lights2dDropped, and the render budget test checks lights2d + lights2dDropped against the number of sources."
       ]
     },
     {
@@ -267,7 +267,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.11 (Tile pathfinding and a behaviour-tree module) in the roadmap.",
-        "Fixed in 23c2aae8 (M29.11): nav.findTilePath(tilemap | {width, height, cost}, from, to, {costs, diagonals, maxNodes, closest}) is A* on tile cells. Burrow Brigade's pathfinding.js no longer has its own A*: it builds a cost grid from MineMap.kinds and calls the engine, and keeps its dig costs, danger kinds and the follow-the-digging version counter."
+        "Fixed in 981c486d (M29.11): nav.findTilePath(tilemap | {width, height, cost}, from, to, {costs, diagonals, maxNodes, closest}) is A* on tile cells. Burrow Brigade's pathfinding.js no longer has its own A*: it builds a cost grid from MineMap.kinds and calls the engine, and keeps its dig costs, danger kinds and the follow-the-digging version counter."
       ]
     },
     {
@@ -293,7 +293,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.11 (Tile pathfinding and a behaviour-tree module) in the roadmap.",
-        "Fixed in 23c2aae8 (M29.11): import { bt } from \"factoria\" gives Tree, sequence, selector, condition, action, wait, cooldown, inverter, succeeder. Burrow Brigade deleted behavior_tree.js: enemy_brains.js builds the beetle, thief and Mole King trees with bt."
+        "Fixed in 981c486d (M29.11): import { bt } from \"factoria\" gives Tree, sequence, selector, condition, action, wait, cooldown, inverter, succeeder. Burrow Brigade deleted behavior_tree.js: enemy_brains.js builds the beetle, thief and Mole King trees with bt."
       ]
     },
     {
@@ -319,7 +319,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.7 (Music: the scene-load bug, voice volume, synced layers, synth loudness) in the roadmap.",
-        "Fixed in 291f4b98 (M29.7): loading a scene starts its music again (also when the track is the same as before) and audio.music(path, {persist: true}) keeps a track across loads; SCRIPTING.md and AI_GUIDE say a scene load stops sounds and music unless persisted. Burrow Brigade keeps music.play() calling audio.music at every shift: the shift picks the track of its stratum itself, so it needs no change."
+        "Fixed in 92f63db3 (M29.7): loading a scene starts its music again (also when the track is the same as before) and audio.music(path, {persist: true}) keeps a track across loads; SCRIPTING.md and AI_GUIDE say a scene load stops sounds and music unless persisted. Burrow Brigade keeps music.play() calling audio.music at every shift: the shift picks the track of its stratum itself, so it needs no change."
       ]
     },
     {
@@ -346,7 +346,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.19 (Split screen: camera viewports) in the roadmap.",
-        "Fixed in f8ddc3e9 (M29.19): one render loop per active primary camera into its Camera.viewport (up to 8), and the screen conversions take a camera. Burrow Brigade: camera_views.js's plan is now drawn, one Camera per view made by follow_camera.js, when Options > Video > Split screen when players part is on (off by default); the leash (limitMove) stays only when it is off."
+        "Fixed in 7afd8428 (M29.19): one render loop per active primary camera into its Camera.viewport (up to 8), and the screen conversions take a camera. Burrow Brigade: camera_views.js's plan is now drawn, one Camera per view made by follow_camera.js, when Options > Video > Split screen when players part is on (off by default); the leash (limitMove) stays only when it is off."
       ]
     },
     {
@@ -372,7 +372,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.9 (Gamepad connect events, a stable pad id and Steam Deck detection) in the roadmap.",
-        "Fixed in fe840536 (M29.9) and 4f6d6b63 (M29.15, input.player(i).use({ padId })): game.on(\"gamepadConnected\" | \"gamepadDisconnected\") with the slot and a stable id, and a returning pad gets its old slot when it is free. Burrow Brigade now uses them: players.js keeps each pad player's padId (input.player(i).use({ padId }), so the miner reads its own pad whatever slot it is in) and pad_watch.js listens to gamepadConnected to move a player's device.index when its pad comes back in another slot, so the pause screen clears by itself (test: coop.test.js, 'a pad that comes back in another slot'). Still polled on purpose: pad_watch.js reads input.gamepad(i).connected every frame (pads plugged in when the scene starts are not announced, and a state read cannot be missed) and join.js reads the button presses of the four slots, which are state, not events."
+        "Fixed in d4f1ac18 (M29.9) and 6a857ee9 (M29.15, input.player(i).use({ padId })): game.on(\"gamepadConnected\" | \"gamepadDisconnected\") with the slot and a stable id, and a returning pad gets its old slot when it is free. Burrow Brigade now uses them: players.js keeps each pad player's padId (input.player(i).use({ padId }), so the miner reads its own pad whatever slot it is in) and pad_watch.js listens to gamepadConnected to move a player's device.index when its pad comes back in another slot, so the pause screen clears by itself (test: coop.test.js, 'a pad that comes back in another slot'). Still polled on purpose: pad_watch.js reads input.gamepad(i).connected every frame (pads plugged in when the scene starts are not announced, and a state read cannot be missed) and join.js reads the button presses of the four slots, which are state, not events."
       ]
     },
     {
@@ -398,7 +398,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.18 (Steam Remote Play guests and cloud.stat) in the roadmap.",
-        "Fixed in cd8fb526 (M29.18): a remotePlay service (sessions(), connect and disconnect events, a fake for tests). Burrow Brigade does not read it: a guest's controller reaches the game as an ordinary pad, so join.js and pad_watch.js treat it like any other pad and keep their workaround."
+        "Fixed in e9c2ae97 (M29.18): a remotePlay service (sessions(), connect and disconnect events, a fake for tests). Burrow Brigade does not read it: a guest's controller reaches the game as an ordinary pad, so join.js and pad_watch.js treat it like any other pad and keep their workaround."
       ]
     },
     {
@@ -427,7 +427,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.4 (The clipboard and the window-close event) in the roadmap.",
-        "Fixed in d025e515 (M29.4): clipboard.read() (a Promise) and clipboard.write(text) with window.supports(\"clipboard\"); a focused TextField pastes with Ctrl/Cmd+V and copies with Ctrl/Cmd+C. Burrow Brigade's clipboard.js writes and reads the system clipboard (the title's Paste button checks that its scene is still current after the read) and keeps a session buffer only where there is no script clipboard (phones); text_entry.js still cleans typed codes."
+        "Fixed in f5240062 (M29.4): clipboard.read() (a Promise) and clipboard.write(text) with window.supports(\"clipboard\"); a focused TextField pastes with Ctrl/Cmd+V and copies with Ctrl/Cmd+C. Burrow Brigade's clipboard.js writes and reads the system clipboard (the title's Paste button checks that its scene is still current after the read) and keeps a session buffer only where there is no script clipboard (phones); text_entry.js still cleans typed codes."
       ]
     },
     {
@@ -452,7 +452,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.2 (The time of day in game.today() and a daily leaderboard by date) in the roadmap.",
-        "Fixed in 120550c2 (M29.2): game.today() has hour, minute, second, utcOffsetMinutes and a utc date, and a dayChanged event. Burrow Brigade's daily dig is keyed on game.today().utc.iso, so everybody in the world plays the same mine on the same UTC day, and its README no longer says the key is local."
+        "Fixed in 943f43ed (M29.2): game.today() has hour, minute, second, utcOffsetMinutes and a utc date, and a dayChanged event. Burrow Brigade's daily dig is keyed on game.today().utc.iso, so everybody in the world plays the same mine on the same UTC day, and its README no longer says the key is local."
       ]
     },
     {
@@ -478,7 +478,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.18 (Steam Remote Play guests and cloud.stat) in the roadmap.",
-        "Fixed in cd8fb526 (M29.18): platform.cloud.stat(key) returns the size and modified time of a cloud file (Steam GetFileTimestamp, Play snapshot metadata; null time on Apple). Burrow Brigade keeps its revision counter and burrow.cloudBase.N in cloud.js: it works on every store, including Apple where there is no modified time."
+        "Fixed in e9c2ae97 (M29.18): platform.cloud.stat(key) returns the size and modified time of a cloud file (Steam GetFileTimestamp, Play snapshot metadata; null time on Apple). Burrow Brigade keeps its revision counter and burrow.cloudBase.N in cloud.js: it works on every store, including Apple where there is no modified time."
       ]
     },
     {
@@ -503,7 +503,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.6 (Test runner and ui.check_layout) in the roadmap.",
-        "Fixed in edb178ec (M29.6): game.click lays the UI out first and throws, naming the widget, when it is not laid out or not visible. Burrow Brigade's saves and cloud tests dropped the extra steps after opening the slots panel; the steps that wait for an answer stay."
+        "Fixed in 52787dfc (M29.6): game.click lays the UI out first and throws, naming the widget, when it is not laid out or not visible. Burrow Brigade's saves and cloud tests dropped the extra steps after opening the slots panel; the steps that wait for an answer stay."
       ]
     },
     {
@@ -531,8 +531,8 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work packages M29.20 (http.fetch on every platform) and M29.21 (Analytics with consent and remote config) in the roadmap.",
-        "Fixed in 94047d90 (M29.20): http.fetch(url, {method, headers, body, timeout}) on every platform, with a fake in tests and headless runs that answers what game.platform.respond gives it. Burrow Brigade does not call it directly; news and balance reach the network through the engine services below.",
-        "Fixed in 1c0beff9 (M29.21): analytics.event with the player's consent, batched and flushed on suspend and quit, and remoteConfig.get(key, default) fetched at start and cached. Burrow Brigade dropped its transport seam: online.js is now a thin wrapper over remoteConfig (news.js and balance.js read it), analytics.js records events on the engine's analytics service, and every feature still works offline."
+        "Fixed in e96d4a18 (M29.20): http.fetch(url, {method, headers, body, timeout}) on every platform, with a fake in tests and headless runs that answers what game.platform.respond gives it. Burrow Brigade does not call it directly; news and balance reach the network through the engine services below.",
+        "Fixed in beb5748a (M29.21): analytics.event with the player's consent, batched and flushed on suspend and quit, and remoteConfig.get(key, default) fetched at start and cached. Burrow Brigade dropped its transport seam: online.js is now a thin wrapper over remoteConfig (news.js and balance.js read it), analytics.js records events on the engine's analytics service, and every feature still works offline."
       ]
     },
     {
@@ -557,7 +557,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.2 (The time of day in game.today() and a daily leaderboard by date) in the roadmap.",
-        "Fixed in 120550c2 (M29.2): leaderboards.submit(id, score, {day}) and entries(id, {day}) address the daily board of a UTC day. Burrow Brigade posts a daily run to the board of run.dailyKey and reads the board of today's UTC day, so a try that crosses midnight posts to the day it began on; the otherDay skip is gone."
+        "Fixed in 943f43ed (M29.2): leaderboards.submit(id, score, {day}) and entries(id, {day}) address the daily board of a UTC day. Burrow Brigade posts a daily run to the board of run.dailyKey and reads the board of today's UTC day, so a try that crosses midnight posts to the day it began on; the otherDay skip is gone."
       ]
     },
     {
@@ -582,7 +582,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.9 (Gamepad connect events, a stable pad id and Steam Deck detection) in the roadmap.",
-        "Fixed in fe840536 (M29.9): game.device.steamDeck and game.device.handheld (the Steam plugin, else the SteamDeck environment variable); game.setDevice takes them in tests. Burrow Brigade's isDeck() is game.device.steamDeck, so a Deck driven by the keyboard or touch is detected too."
+        "Fixed in d4f1ac18 (M29.9): game.device.steamDeck and game.device.handheld (the Steam plugin, else the SteamDeck environment variable); game.setDevice takes them in tests. Burrow Brigade's isDeck() is game.device.steamDeck, so a Deck driven by the keyboard or touch is detected too."
       ]
     },
     {
@@ -608,7 +608,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.4 (The clipboard and the window-close event) in the roadmap.",
-        "Fixed in d025e515 (M29.4): game.on(\"quit\") is raised by the close button, Cmd+Q and Alt+F4 (a handler may cancel); with M29.21 the analytics queue is sent on every way out of the game, within 3 seconds. Burrow Brigade no longer flushes by hand; the Quit button only queues its \"quit\" event (analytics.recordQuit), and closing the window loses nothing that waits."
+        "Fixed in f5240062 (M29.4): game.on(\"quit\") is raised by the close button, Cmd+Q and Alt+F4 (a handler may cancel); with M29.21 the analytics queue is sent on every way out of the game, within 3 seconds. Burrow Brigade no longer flushes by hand; the Quit button only queues its \"quit\" event (analytics.recordQuit), and closing the window loses nothing that waits."
       ]
     },
     {
@@ -633,7 +633,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.6 (Test runner and ui.check_layout) in the roadmap.",
-        "Fixed in edb178ec (M29.6): game.tapKey(key) presses and releases a key over one frame, so game.tapKey(\"Enter\") submits a TextField. Burrow Brigade's tests/deck.test.js now tests text_entry's onSubmit with it."
+        "Fixed in 52787dfc (M29.6): game.tapKey(key) presses and releases a key over one frame, so game.tapKey(\"Enter\") submits a TextField. Burrow Brigade's tests/deck.test.js now tests text_entry's onSubmit with it."
       ]
     },
     {
@@ -659,7 +659,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.7 (Music: the scene-load bug, voice volume, synced layers, synth loudness) in the roadmap.",
-        "Fixed in 291f4b98 (M29.7): audio.musicLayers({name: path}, opts) starts several tracks on the same sample, audio.setLayer(name, volume, fade) mixes them, and audio.setVoiceVolume changes a playing voice. Burrow Brigade keeps its emulation (music.js): its layers are one-bar loops (make_music_layers.py), not full-length stems, so using musicLayers means re-rendering and listening to the music; it was not done in this pass."
+        "Fixed in 92f63db3 (M29.7): audio.musicLayers({name: path}, opts) starts several tracks on the same sample, audio.setLayer(name, volume, fade) mixes them, and audio.setVoiceVolume changes a playing voice. Burrow Brigade keeps its emulation (music.js): its layers are one-bar loops (make_music_layers.py), not full-length stems, so using musicLayers means re-rendering and listening to the music; it was not done in this pass."
       ]
     },
     {
@@ -685,7 +685,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.16 (Bus effects, ducking and snapshots) in the roadmap.",
-        "Fixed in 44c0bc69 (M29.16): audio.bus(name).lowpass(hz), .reverb(mix), .duck(byBus, amount, attack, release) and audio.snapshot(name, {fade}). Burrow Brigade keeps mix.js and the replayed echo in sound.js: moving to real filters and reverb changes how the game sounds and needs listening, so it was not done in this pass."
+        "Fixed in 9f941d4d (M29.16): audio.bus(name).lowpass(hz), .reverb(mix), .duck(byBus, amount, attack, release) and audio.snapshot(name, {fade}). Burrow Brigade keeps mix.js and the replayed echo in sound.js: moving to real filters and reverb changes how the game sounds and needs listening, so it was not done in this pass."
       ]
     },
     {
@@ -711,7 +711,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.17 (Monitor choice and window modes) in the roadmap.",
-        "Fixed in 7156bfaf (M29.17): window.monitors(), window.setMonitor(i) and window.setMode(\"windowed\" | \"borderless\" | \"fullscreen\") on Windows, macOS and Linux. Burrow Brigade now uses them: Options > Video cycles the three modes with window.setMode (borderless only where window.supports(\"borderless\")) and shows a monitor button (window.monitors() / window.setMonitor) only where window.supports(\"monitors\") and there is more than one monitor; settings.js saves displayMode and monitor and applies them at start, and an older save's fullscreen flag still means full screen."
+        "Fixed in e8b01be0 (M29.17): window.monitors(), window.setMonitor(i) and window.setMode(\"windowed\" | \"borderless\" | \"fullscreen\") on Windows, macOS and Linux. Burrow Brigade now uses them: Options > Video cycles the three modes with window.setMode (borderless only where window.supports(\"borderless\")) and shows a monitor button (window.monitors() / window.setMonitor) only where window.supports(\"monitors\") and there is more than one monitor; settings.js saves displayMode and monitor and applies them at start, and an older save's fullscreen flag still means full screen."
       ]
     },
     {
@@ -737,7 +737,7 @@
       "status": "duplicate",
       "notes": [
         "2026-10-25 triage: duplicate of FB-0009 (its occurrences were merged there); work package M29.1 (Light2D in the stats and the perf budget, a better choice of 16) in the roadmap.",
-        "Fixed in bef8abf1 (M29.1), as FB-0009: perf.measure's lights and so the maxLights budget count 2D lights. Burrow Brigade's render budget test reads renderStats().lights2d instead of counting entities, and perf.json holds the real count (lights 20, maxLights 24)."
+        "Fixed in dbc88aaa (M29.1), as FB-0009: perf.measure's lights and so the maxLights budget count 2D lights. Burrow Brigade's render budget test reads renderStats().lights2d instead of counting entities, and perf.json holds the real count (lights 20, maxLights 24)."
       ]
     },
     {
@@ -762,7 +762,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.13 (The exported player takes an input replay, dumps its state and takes a screenshot) in the roadmap.",
-        "Fixed in 78e12e7a (M29.13): the exported player accepts --input, --dump-state and --screenshot with --frames through the same options as factoria run. Burrow Brigade's SHIPPING.md says so; its check with factoria run stays as written because no export was made in this pass."
+        "Fixed in c06617f5 (M29.13): the exported player accepts --input, --dump-state and --screenshot with --frames through the same options as factoria run. Burrow Brigade's SHIPPING.md says so; its check with factoria run stays as written because no export was made in this pass."
       ]
     },
     {
@@ -789,7 +789,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.12 (input.record and starting a scene with props) in the roadmap.",
-        "Fixed in 21ce220b (M29.12): input.record {action: start | stop} records keys, mouse, touches and gamepads into a replay, and scene.load(path, props) with game.sceneProps() hands values to a scene. Burrow Brigade keeps its generated store scenes and its bot-made replays (store/record.test.js): they work and were not regenerated in this pass."
+        "Fixed in 089e2353 (M29.12): input.record {action: start | stop} records keys, mouse, touches and gamepads into a replay, and scene.load(path, props) with game.sceneProps() hands values to a scene. Burrow Brigade keeps its generated store scenes and its bot-made replays (store/record.test.js): they work and were not regenerated in this pass."
       ]
     },
     {
@@ -815,7 +815,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.5 (Steam from one Mac: optional plugin, exports, app 480, capsules) in the roadmap.",
-        "Fixed in f96d04d3 (M29.5): a plugin that cannot load its library logs a warning instead of an ERROR, and project.export takes allowMissingPlugins. Burrow Brigade still does not commit plugins/steam and SHIPPING.md keeps the platform.add_backend step for the machine that exports."
+        "Fixed in f0dd727d (M29.5): a plugin that cannot load its library logs a warning instead of an ERROR, and project.export takes allowMissingPlugins. Burrow Brigade still does not commit plugins/steam and SHIPPING.md keeps the platform.add_backend step for the machine that exports."
       ]
     },
     {
@@ -840,7 +840,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.5 (Steam from one Mac: optional plugin, exports, app 480, capsules) in the roadmap.",
-        "Fixed in f96d04d3 (M29.5): a player with no build fingerprint gets its own error that does not point at setup players. Burrow Brigade keeps exporting windows and linux with --allow-player-mismatch, because only the 0.2.0 player is installed here."
+        "Fixed in f0dd727d (M29.5): a player with no build fingerprint gets its own error that does not point at setup players. Burrow Brigade keeps exporting windows and linux with --allow-player-mismatch, because only the 0.2.0 player is installed here."
       ]
     },
     {
@@ -866,7 +866,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.5 (Steam from one Mac: optional plugin, exports, app 480, capsules) in the roadmap.",
-        "Fixed in f96d04d3 (M29.5): publish.steam accepts app 480 in a dry run with a warning and still refuses it for a real upload. Burrow Brigade's SHIPPING.md says so; the dry run it shows still uses another id because it was not rerun."
+        "Fixed in f0dd727d (M29.5): publish.steam accepts app 480 in a dry run with a warning and still refuses it for a real upload. Burrow Brigade's SHIPPING.md says so; the dry run it shows still uses another id because it was not rerun."
       ]
     },
     {
@@ -892,7 +892,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.5 (Steam from one Mac: optional plugin, exports, app 480, capsules) in the roadmap.",
-        "Fixed in f96d04d3 (M29.5): assets.draw_capsules takes logoAnchor and safeArea per capsule, and focus also moves the logo. Burrow Brigade keeps the picture lift (KEYART_LIFT) in make_store.py: the capsules were not redrawn in this pass."
+        "Fixed in f0dd727d (M29.5): assets.draw_capsules takes logoAnchor and safeArea per capsule, and focus also moves the logo. Burrow Brigade keeps the picture lift (KEYART_LIFT) in make_store.py: the capsules were not redrawn in this pass."
       ]
     },
     {
@@ -918,7 +918,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.6 (Test runner and ui.check_layout) in the roadmap.",
-        "Fixed in edb178ec (M29.6): SCRIPTING.md shows fa.call(\"fs.write\", {path, content}) to save a file from a test. Burrow Brigade's store/record.test.js writes each recording to .factoria/tmp with it and make_store.py reads those files; the @@REPLAY lines in stdout are gone."
+        "Fixed in 52787dfc (M29.6): SCRIPTING.md shows fa.call(\"fs.write\", {path, content}) to save a file from a test. Burrow Brigade's store/record.test.js writes each recording to .factoria/tmp with it and make_store.py reads those files; the @@REPLAY lines in stdout are gone."
       ]
     },
     {
@@ -945,7 +945,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.3 (Thai line breaks at marked boundaries and the sara am check) in the roadmap.",
-        "Fixed in 2690d768 (M29.3): text wrapping breaks after U+200B ZERO WIDTH SPACE (not drawn) and the UAX 14 spaces, so Thai text whose translator marks word boundaries wraps there; breaking unmarked Thai needs a dictionary and is not done. Burrow Brigade keeps its real spaces between phrases and the 17-letter check (thai_spaces.py): it has no word-marked Thai text."
+        "Fixed in b8639b1a (M29.3): text wrapping breaks after U+200B ZERO WIDTH SPACE (not drawn) and the UAX 14 spaces, so Thai text whose translator marks word boundaries wraps there; breaking unmarked Thai needs a dictionary and is not done. Burrow Brigade keeps its real spaces between phrases and the 17-letter check (thai_spaces.py): it has no word-marked Thai text."
       ]
     },
     {
@@ -970,7 +970,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.3 (Thai line breaks at marked boundaries and the sara am check) in the roadmap.",
-        "Fixed in 2690d768 (M29.3): the glyph check expands composed vowels (U+0E33 needs U+0E4D and U+0E32), and localization validate and the missing-glyph warning name them. Burrow Brigade keeps keeping U+0E4D in make_subset.py: it is the step that builds the font, and the engine check now agrees with it."
+        "Fixed in b8639b1a (M29.3): the glyph check expands composed vowels (U+0E33 needs U+0E4D and U+0E32), and localization validate and the missing-glyph warning name them. Burrow Brigade keeps keeping U+0E4D in make_subset.py: it is the step that builds the font, and the engine check now agrees with it."
       ]
     },
     {
@@ -996,7 +996,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-25 triage: confirmed open; work package M29.6 (Test runner and ui.check_layout) in the roadmap.",
-        "Fixed in edb178ec (M29.6): ui.check_layout intersects each widget with its ScrollList's clip and takes steps per scene (clicks, keys, frames) before the checks. Burrow Brigade keeps tests/helpers/layout.js: it also checks overlaps and panel containment at three languages and two text sizes, which its layout tests rely on."
+        "Fixed in 52787dfc (M29.6): ui.check_layout intersects each widget with its ScrollList's clip and takes steps per scene (clicks, keys, frames) before the checks. Burrow Brigade keeps tests/helpers/layout.js: it also checks overlaps and panel containment at three languages and two text sizes, which its layout tests rely on."
       ]
     }
   ]

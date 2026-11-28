@@ -23,7 +23,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: docs/AI_GUIDE.md still marks validate/test/call/commands/--input as (planned); all of them work (verified).",
+        "Still open after fcb4af1: docs/AI_GUIDE.md still marks validate/test/call/commands/--input as (planned); all of them work (verified).",
         "Docs: stale (planned) markers removed."
       ],
       "engineIssue": "this release"
@@ -48,7 +48,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: docs/GETTING_STARTED.md is still Spanish and its status table still says 'en desarrollo'.",
+        "Still open after fcb4af1: docs/GETTING_STARTED.md is still Spanish and its status table still says 'en desarrollo'.",
         "GETTING_STARTED.md now starts with an English pointer to AI_GUIDE.md (the full English guide); status table updated.",
         "docs/GETTING_STARTED.md is now English (the reference); the Spanish version moved to docs/i18n/es/GETTING_STARTED.md. Translations are not embedded, so factoria docs read getting-started returns English."
       ],
@@ -74,10 +74,10 @@
       "suggestion": "Resolve the import against the importing file's folder, normalise the result, then check it is inside the project root. Report import failures as import errors, not syntax errors.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: '../x.js' imports inside the project now resolve and validate; only paths that leave the project root fail, and the error names the import.",
-        "53fab56: scripts and tools import ../levels/levels.json with a relative path."
+        "Fixed in fcb4af1: '../x.js' imports inside the project now resolve and validate; only paths that leave the project root fail, and the error names the import.",
+        "6203223: scripts and tools import ../levels/levels.json with a relative path."
       ]
     },
     {
@@ -101,10 +101,10 @@
       "suggestion": "Support JSON modules (import x from \"x.json\") or add assets.readJson(path) and assets.readText(path) to the scripting API. Attribute parse errors to the file that failed.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: import levels from '../data/levels.json' works (default export = parsed JSON, hot-reload aware); JSON syntax errors are reported against the .json file. Verified.",
-        "Workaround removed in 53fab56: levels/levels.json replaces the levels.js module."
+        "Fixed in fcb4af1: import levels from '../data/levels.json' works (default export = parsed JSON, hot-reload aware); JSON syntax errors are reported against the .json file. Verified.",
+        "Workaround removed in 6203223: levels/levels.json replaces the levels.js module."
       ]
     },
     {
@@ -127,10 +127,10 @@
       "suggestion": "Add a Modules section to SCRIPTING.md with the resolution rules and a worked example of a shared data module used by both a behaviour and a project tool.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: docs/SCRIPTING.md > Imports documents the resolution rules and JSON imports.",
-        "53fab56: relative ../ imports are used and validate accepts them."
+        "Fixed in fcb4af1: docs/SCRIPTING.md > Imports documents the resolution rules and JSON imports.",
+        "6203223: relative ../ imports are used and validate accepts them."
       ]
     },
     {
@@ -152,10 +152,10 @@
       "suggestion": "Run one frame inside game.load (or start behaviours there), or report a missing entity as 'no entity matched; did you step a frame after game.load?'. Document that onStart runs on the first step.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: game.load constructs behaviours immediately; onStart runs on the first game.step (documented). game.find returns null for a missing entity.",
-        "53fab56: the step after game.load is kept on purpose: Board.onStart builds the level on the first step (a test covers it)."
+        "Fixed in fcb4af1: game.load constructs behaviours immediately; onStart runs on the first game.step (documented). game.find returns null for a missing entity.",
+        "6203223: the step after game.load is kept on purpose: Board.onStart builds the level on the first step (a test covers it)."
       ]
     },
     {
@@ -177,9 +177,9 @@
       "suggestion": "Print each result once. Optionally add a summary-only flag, or print only failures with their details at the end.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: factoria test prints each result once (verified)."
+        "Fixed in fcb4af1: factoria test prints each result once (verified)."
       ]
     },
     {
@@ -201,9 +201,9 @@
       "suggestion": "Generate the real typings in factoria new, or add the regeneration command to the next-steps output.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: factoria new writes the real generated typings; refresh with 'factoria api --dts --project .'."
+        "Fixed in fcb4af1: factoria new writes the real generated typings; refresh with 'factoria api --dts --project .'."
       ]
     },
     {
@@ -225,9 +225,9 @@
       "suggestion": "Change the generated guide to say factoria api --dts --project ., or make --dts write into the enclosing project when run inside one.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: The generated AGENTS.md/CLAUDE.md now say 'factoria api --dts --project .' (writes the file; plain --dts only prints)."
+        "Fixed in fcb4af1: The generated AGENTS.md/CLAUDE.md now say 'factoria api --dts --project .' (writes the file; plain --dts only prints)."
       ]
     },
     {
@@ -249,9 +249,9 @@
       "suggestion": "Fix the example, and run the documentation examples through validate in CI so wrong names are caught.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: docs/CLI.md scene.spawn example now uses Transform."
+        "Fixed in fcb4af1: docs/CLI.md scene.spawn example now uses Transform."
       ]
     },
     {
@@ -273,9 +273,9 @@
       "suggestion": "Make scene.spawn return ok false (exit 1) for unknown component or field names, as validate does, or print them to stderr.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: scene.spawn / scene.set_component fail with exit 1 and nothing created on unknown component or field names, with did-you-mean hints (verified)."
+        "Fixed in fcb4af1: scene.spawn / scene.set_component fail with exit 1 and nothing created on unknown component or field names, with did-you-mean hints (verified)."
       ]
     },
     {
@@ -298,10 +298,10 @@
       "suggestion": "Add game.touch(screenPos) (or a tap variant) that fills input.touches for one frame, with pressed set on the first frame of contact.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: game.touch(pos, frames=1), game.touchStart(pos, id?), touchMove, touchEnd fill input.touches in tests (touch.pressed is true on the first frame only; verified).",
-        "53fab56: the touch branch is tested (taps, swipes, a device-style tap)."
+        "Fixed in fcb4af1: game.touch(pos, frames=1), game.touchStart(pos, id?), touchMove, touchEnd fill input.touches in tests (touch.pressed is true on the first frame only; verified).",
+        "6203223: the touch branch is tested (taps, swipes, a device-style tap)."
       ]
     },
     {
@@ -324,7 +324,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: TouchInfo.pressed is still undocumented in docs/SCRIPTING.md and the typings. Verified behaviour: true only on the first frame of a touch, false while it is held.",
+        "Still open after fcb4af1: TouchInfo.pressed is still undocumented in docs/SCRIPTING.md and the typings. Verified behaviour: true only on the first frame of a touch, false while it is held.",
         "Docs: AI_GUIDE documents input.touches entries (id, position, world, pressed)."
       ],
       "engineIssue": "this release"
@@ -348,10 +348,10 @@
       "suggestion": "Expose Text.measure(text, fontSize) in the scripting API, or a read-only width and height on Text after layout, so UI panels can size to their content.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: ui.measureText(text, { fontSize, font, maxWidth }) -> { width, height }. Headless runs approximate (0.6 x fontSize per char) and warn once.",
-        "Workaround removed in 53fab56: the banner panel is sized with ui.measureText."
+        "Fixed in fcb4af1: ui.measureText(text, { fontSize, font, maxWidth }) -> { width, height }. Headless runs approximate (0.6 x fontSize per char) and warn once.",
+        "Workaround removed in 6203223: the banner panel is sized with ui.measureText."
       ]
     },
     {
@@ -374,9 +374,9 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: Shape2D now has pivot (default [0.5,0.5], centered) and anchor, described in the engine's api output, but docs/COMPONENTS.md has not been regenerated. Use pivot/anchor now.",
+        "Still open after fcb4af1: Shape2D now has pivot (default [0.5,0.5], centered) and anchor, described in the engine's api output, but docs/COMPONENTS.md has not been regenerated. Use pivot/anchor now.",
         "Docs: anchor/pivot documented in AI_GUIDE and COMPONENTS.md (Sprite/Shape2D/Text anchor).",
-        "Workaround removed in 53fab56: the HUD uses anchor/pivot (correct at 1920x720 and 720x1280)."
+        "Workaround removed in 6203223: the HUD uses anchor/pivot (correct at 1920x720 and 720x1280)."
       ],
       "engineIssue": "this release"
     },
@@ -399,9 +399,9 @@
       "suggestion": "Document the spawn options in SCRIPTING.md, with the root-and-destroy pattern as an example.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: world.spawn(json, { position, rotation, scale, parent, props }) and spawnPrefab options are documented in docs/SCRIPTING.md (world section)."
+        "Fixed in fcb4af1: world.spawn(json, { position, rotation, scale, parent, props }) and spawnPrefab options are documented in docs/SCRIPTING.md (world section)."
       ]
     },
     {
@@ -424,7 +424,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: docs/EXTENDING.md still marks tools/*.js and 'factoria call' as (planned); both work (verified).",
+        "Still open after fcb4af1: docs/EXTENDING.md still marks tools/*.js and 'factoria call' as (planned); both work (verified).",
         "Docs: EXTENDING.md updated; project tools and factoria call are documented as available."
       ],
       "engineIssue": "this release"
@@ -449,9 +449,9 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Partly fixed in e2b0090: throw new ToolError(message, hint, data) makes the call exit 1 and keeps data via 'call --batch', 'session' and MCP. Still open: a plain 'factoria call project.x' prints only message+hint (verified), so the data/report is lost on the CLI single-call path; a returned {ok:false} still exits 0.",
+        "Partly fixed in fcb4af1: throw new ToolError(message, hint, data) makes the call exit 1 and keeps data via 'call --batch', 'session' and MCP. Still open: a plain 'factoria call project.x' prints only message+hint (verified), so the data/report is lost on the CLI single-call path; a returned {ok:false} still exits 0.",
         "throw new ToolError(message, hint, data): data is returned as error.data by factoria call (--json), session/batch and MCP.",
-        "Workaround removed in 53fab56: check_levels throws ToolError(message, hint, report); factoria call exits 1 and prints error.data (stderr, and stdout with --json)."
+        "Workaround removed in 6203223: check_levels throws ToolError(message, hint, report); factoria call exits 1 and prints error.data (stderr, and stdout with --json)."
       ],
       "engineIssue": "this release"
     },
@@ -475,9 +475,9 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Fixed in 303db3e: fa.call copies the command error's data onto the thrown Error (e.data), next to code and hint. Workaround removed: the check_levels test in tests/board.test.js asserts on e.data (the report)."
+        "Fixed in ae3ace4: fa.call copies the command error's data onto the thrown Error (e.data), next to code and hint. Workaround removed: the check_levels test in tests/board.test.js asserts on e.data (the report)."
       ],
-      "engineIssue": "303db3e"
+      "engineIssue": "ae3ace4"
     },
     {
       "id": "FB-0020",
@@ -499,9 +499,9 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Fixed in 303db3e: the first finger drives the mouse (position + MouseLeft) inside fa::Input, so game.touch/touchStart in tests behave like a device. Workaround removed: the tap tests in tests/board.test.js use game.touch only."
+        "Fixed in ae3ace4: the first finger drives the mouse (position + MouseLeft) inside fa::Input, so game.touch/touchStart in tests behave like a device. Workaround removed: the tap tests in tests/board.test.js use game.touch only."
       ],
-      "engineIssue": "303db3e"
+      "engineIssue": "ae3ace4"
     },
     {
       "id": "FB-0021",
@@ -520,9 +520,9 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Fixed in 6e5b5b2: an imported .json that is not valid JSON is reported once by factoria validate, as that file with line and column (\"levels/x.json:3:14: invalid JSON: ...\"), and the importing scripts get no extra Script props warnings."
+        "Fixed in 81ee622: an imported .json that is not valid JSON is reported once by factoria validate, as that file with line and column (\"levels/x.json:3:14: invalid JSON: ...\"), and the importing scripts get no extra Script props warnings."
       ],
-      "engineIssue": "6e5b5b2"
+      "engineIssue": "81ee622"
     }
   ]
 }

@@ -16,7 +16,7 @@ editor looks at its own `factoria` file (size and modification time) every 5 sec
 once the file has changed it reads the build identity (version and commit fingerprint) written in it. If that is another
 build than the one running, a notice appears at the bottom of the window, and the editor stays usable:
 
-> FactorIA was updated on disk (0.3.0 build f530fda3e543 -> 0.4.0 build 1a2b3c4d5e6f). Restart the editor to use it.
+> FactorIA was updated on disk (0.3.0 build 0f9e8d7c6b5a -> 0.4.0 build 1a2b3c4d5e6f). Restart the editor to use it.
 
 **Restart** quits (the unsaved-changes dialog still asks) and reopens the editor on the same project, the way the updater
 does; the chats of the AI Assistant (`.factoria/ai/chats/`) come back with their tabs. **Not now** hides the notice until the

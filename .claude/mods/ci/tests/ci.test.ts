@@ -5,7 +5,7 @@ import { merge_verdict, parse_args, parse_remote, report } from '../hooks/ci'
 
 const PR = {
   number: 2, title: 'Close the last gaps', state: 'open', merged: false, draft: false, mergeable_state: 'unstable',
-  html_url: 'https://github.com/OxtailGames/FactorIA/pull/2', head: { sha: '0a82433a35ea441b', ref: 'claude/x' },
+  html_url: 'https://github.com/OxtailGames/FactorIA/pull/2', head: { sha: 'b43d3b294e4137ee', ref: 'claude/x' },
 }
 const T0 = Date.parse('2026-10-13T21:20:00Z')
 const run = (name: string, status: string, conclusion: string | null, startedMin: number, endedMin?: number) => ({
@@ -30,7 +30,7 @@ function host(on: On, runs: () => unknown[], calls: string[]): void {
     if (cmd === 'git rev-parse --abbrev-ref HEAD') return ok('claude/x\n')
     if (cmd.includes('/pulls?head=OxtailGames:claude%2Fx')) return ok(JSON.stringify([PR]))
     if (cmd.endsWith('repos/OxtailGames/FactorIA/pulls/2')) return ok(JSON.stringify(PR))
-    if (cmd.includes('/commits/0a82433a35ea441b/check-runs')) return ok(JSON.stringify({ check_runs: runs() }))
+    if (cmd.includes('/commits/b43d3b294e4137ee/check-runs')) return ok(JSON.stringify({ check_runs: runs() }))
     return { value: { exitCode: 1, stdout: '', stderr: `HTTP 404: Not Found (${cmd})`, isStdoutTruncated: false, isStderrTruncated: false } }
   })
 }
@@ -111,7 +111,7 @@ test('/ci prs lists open PRs and says which can be merged', async ($, on) => {
     if (cmd.includes('/pulls?state=open')) return ok([PR, ready])
     if (cmd.endsWith('/pulls/2')) return ok(PR)
     if (cmd.endsWith('/pulls/3')) return ok(ready)
-    if (cmd.includes('/commits/0a82433a35ea441b/check-runs')) return ok({ check_runs: DONE })
+    if (cmd.includes('/commits/b43d3b294e4137ee/check-runs')) return ok({ check_runs: DONE })
     if (cmd.includes('/commits/bbbbbbb1/check-runs')) return ok({ check_runs: green })
     return { value: { exitCode: 1, stdout: '', stderr: 'HTTP 404', isStdoutTruncated: false, isStderrTruncated: false } }
   })

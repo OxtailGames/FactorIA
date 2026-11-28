@@ -22,9 +22,9 @@
       "suggestion": "Have 'factoria new' write the real output of 'factoria api --dts' (or make the stub header say clearly to run it), and keep it refreshed on validate.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: factoria new writes the real generated typings; refresh with 'factoria api --dts --project .'."
+        "Fixed in fcb4af1: factoria new writes the real generated typings; refresh with 'factoria api --dts --project .'."
       ]
     },
     {
@@ -44,7 +44,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: docs/AI_GUIDE.md still marks working CLI commands (planned); the commands work (verified).",
+        "Still open after fcb4af1: docs/AI_GUIDE.md still marks working CLI commands (planned); the commands work (verified).",
         "Docs: stale (planned) markers removed."
       ],
       "engineIssue": "this release"
@@ -69,10 +69,10 @@
       "suggestion": "Carry dynamic bodies resting on kinematic bodies (apply platform velocity to supported bodies), or expose the contact's other body + a 'standingOn' query on RigidBody3D.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: Dynamic bodies resting on a kinematic RigidBody3D now ride it (inherit its displacement; friction acts on relative velocity). Verified with friction 0, 0.5 and 1 over 2 s. Stacked riders are not carried.",
-        "Workaround removed in 99eebad: ball.js no longer adds the platform velocity; the ball rides the kinematic movers through the engine."
+        "Fixed in fcb4af1: Dynamic bodies resting on a kinematic RigidBody3D now ride it (inherit its displacement; friction acts on relative velocity). Verified with friction 0, 0.5 and 1 over 2 s. Stacked riders are not carried.",
+        "Workaround removed in 50b7f15: ball.js no longer adds the platform velocity; the ball rides the kinematic movers through the engine."
       ]
     },
     {
@@ -94,10 +94,10 @@
       "suggestion": "Accept arrays for Vec3Like (or throw a clear error), add opts.ignore (entity or id) and skip colliders containing the origin by default; add RigidBody3D/entity.isGrounded() for 3D like the 2D one.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: raycast3d accepts [x,y,z] arrays or vec3(); { ignore: entity|id } option; colliders containing the origin are skipped. Verified.",
-        "Workaround removed in 99eebad: ground() uses physics.raycast3d(pos, [0,-1,0], d, { ignore: this.entity }); the collider-layer trick is gone."
+        "Fixed in fcb4af1: raycast3d accepts [x,y,z] arrays or vec3(); { ignore: entity|id } option; colliders containing the origin are skipped. Verified.",
+        "Workaround removed in 50b7f15: ground() uses physics.raycast3d(pos, [0,-1,0], d, { ignore: this.entity }); the collider-layer trick is gone."
       ]
     },
     {
@@ -119,11 +119,11 @@
       "suggestion": "Add angular velocity / rolling for sphere colliders, or at least RigidBody3D.angularVelocity + a rolling-friction option.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: RigidBody3D.angularVelocity (deg/s) and rollWithMotion (default true): a sphere on the ground spins to match its motion (visual only, colliders stay axis-aligned). Caveat: friction still slows the ball as if sliding (no rolling resistance model), so keep applying your own force/velocity.",
-        "Workaround removed in 99eebad: rollWithMotion spins the ball; the manual rotation (which double-rotated it together with the engine's rolling) is gone.",
-        "Caveat resolved in d5ad914 (M5): a sphere with rollWithMotion now uses rolling resistance (RigidBody3D.rollingFriction, default 0.02) instead of sliding friction, so it keeps rolling; box colliders follow the entity's rotation."
+        "Fixed in fcb4af1: RigidBody3D.angularVelocity (deg/s) and rollWithMotion (default true): a sphere on the ground spins to match its motion (visual only, colliders stay axis-aligned). Caveat: friction still slows the ball as if sliding (no rolling resistance model), so keep applying your own force/velocity.",
+        "Workaround removed in 50b7f15: rollWithMotion spins the ball; the manual rotation (which double-rotated it together with the engine's rolling) is gone.",
+        "Caveat resolved in 566aaf4 (M5): a sphere with rollWithMotion now uses rolling resistance (RigidBody3D.rollingFriction, default 0.02) instead of sliding friction, so it keeps rolling; box colliders follow the entity's rotation."
       ]
     },
     {
@@ -145,10 +145,10 @@
       "suggestion": "Add pivot to Shape2D, document that rectangles are centered, and add anchors (top-right etc.) for screen-space UI so layouts survive resolution/scaleMode changes.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: Shape2D.pivot ([0.5,0.5] default, [0,1] = top-left in screen space) and Sprite/Shape2D/Text 'anchor' (screen-space anchors such as [1,0] top-right). Verified by screenshot.",
-        "Workaround removed in 99eebad: HUD panels and texts use anchor/pivot and follow the screen edges at any width."
+        "Fixed in fcb4af1: Shape2D.pivot ([0.5,0.5] default, [0,1] = top-left in screen space) and Sprite/Shape2D/Text 'anchor' (screen-space anchors such as [1,0] top-right). Verified by screenshot.",
+        "Workaround removed in 50b7f15: HUD panels and texts use anchor/pivot and follow the screen edges at any width."
       ]
     },
     {
@@ -170,10 +170,10 @@
       "suggestion": "Add 'factoria test'/'run --no-render' (logic only) and render only on screenshot frames; make game.step(n) skip rendering except the last frame.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: Headless runs/tests render only when a screenshot is taken (--render-all to force): 5400 simulated frames take ~0.4 s. No flag needed.",
-        "99eebad: tests let time run (game.step(5400) takes about 2.8 s with physics and scripts) instead of poking timeLeft."
+        "Fixed in fcb4af1: Headless runs/tests render only when a screenshot is taken (--render-all to force): 5400 simulated frames take ~0.4 s. No flag needed.",
+        "50b7f15: tests let time run (game.step(5400) takes about 2.8 s with physics and scripts) instead of poking timeLeft."
       ]
     },
     {
@@ -196,10 +196,10 @@
       "suggestion": "Make burst fire regardless of emitting, add an emitter 'oneShot/autoDestroy' option (destroy entity when done) and a script-callable emitter.burst(n).",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: ParticleEmitter.burst fires with emitting:false; particles.burst(entity, n); autoDestroy:true for one-shots.",
-        "Workaround removed in 99eebad: gem pickups spawn prefabs/gem_burst.prefab.json (emitting:false, burst, autoDestroy); the cleanup timer is gone."
+        "Fixed in fcb4af1: ParticleEmitter.burst fires with emitting:false; particles.burst(entity, n); autoDestroy:true for one-shots.",
+        "Workaround removed in 50b7f15: gem pickups spawn prefabs/gem_burst.prefab.json (emitting:false, burst, autoDestroy); the cleanup timer is gone."
       ]
     },
     {
@@ -221,10 +221,10 @@
       "suggestion": "Free the id immediately on destroy(), or offer entity.destroyNow()/world.flush() for tools and tests.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: world.destroy() unregisters the id immediately, so world.spawn with the same id right after works (verified).",
-        "Workaround removed in 99eebad: scatter_gems spawns plain gem_N ids."
+        "Fixed in fcb4af1: world.destroy() unregisters the id immediately, so world.spawn with the same id right after works (verified).",
+        "Workaround removed in 50b7f15: scatter_gems spawns plain gem_N ids."
       ]
     },
     {
@@ -249,7 +249,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: docs/AI_GUIDE.md section 9 has no 3D recipes. Useful now: raycast3d with { ignore }, entity.isGrounded(), kinematic platforms carry riders, 3D triggers need a RigidBody3D.",
+        "Still open after fcb4af1: docs/AI_GUIDE.md section 9 has no 3D recipes. Useful now: raycast3d with { ignore }, entity.isGrounded(), kinematic platforms carry riders, 3D triggers need a RigidBody3D.",
         "Docs: AI_GUIDE 9.9-9.17 add 3D recipes (lights/fog, chase camera, moving platforms, rolling ball, 3D raycasts)."
       ],
       "engineIssue": "this release"
@@ -273,10 +273,10 @@
       "suggestion": "Document entity.behaviour in the testing section and add game.step(n,{render:false}).",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: Rendering is skipped in tests by default, so game.step(5400) is fast; read script fields with game.find(id).behaviour (usable right after game.load, see SCRIPTING.md 'When behaviours exist').",
-        "99eebad: tests drive the camera by input and let timers expire; direct behaviour reads are kept only where they are the clearest assertion."
+        "Fixed in fcb4af1: Rendering is skipped in tests by default, so game.step(5400) is fast; read script fields with game.find(id).behaviour (usable right after game.load, see SCRIPTING.md 'When behaviours exist').",
+        "50b7f15: tests drive the camera by input and let timers expire; direct behaviour reads are kept only where they are the clearest assertion."
       ]
     },
     {
@@ -321,9 +321,9 @@
       "suggestion": "Let anim3d.generate and anim3d.retarget write a provenance record with a recipe (inputs: the rig .glb and the source clip) like rig.bake does, so assets.regenerate {stale:true} follows a re-fit of the rig.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "76bdc6bc",
+      "engineIssue": "e5c7c417",
       "notes": [
-        "Fixed in 76bdc6bc (M101.6): anim3d.generate and anim3d.retarget write a provenance record with a recipe (inputs: the rig, and for a retarget the source clip), assets.set_provenance takes kind anim3d and assets.regenerate {stale:true} remakes the clips after a re-fit. The two hand-written records were replaced by the commands' own."
+        "Fixed in e5c7c417 (M101.6): anim3d.generate and anim3d.retarget write a provenance record with a recipe (inputs: the rig, and for a retarget the source clip), assets.set_provenance takes kind anim3d and assets.regenerate {stale:true} remakes the clips after a re-fit. The two hand-written records were replaced by the commands' own."
       ]
     },
     {
@@ -345,9 +345,9 @@
       "suggestion": "Fit the rig from the parts, then merge the skinned submeshes by material when baking (skin weights are per vertex, so merging does not change the pose).",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "0072cc15",
+      "engineIssue": "46467561",
       "notes": [
-        "Fixed in 0072cc15: rig.bake {mergeParts} regroups the skinned submeshes by material. The scout bakes with it (8 submeshes -> 2); the example's drawCalls go 30 -> 18 (tools/cli/tests/perf/gem-roller.perf.json)."
+        "Fixed in 46467561: rig.bake {mergeParts} regroups the skinned submeshes by material. The scout bakes with it (8 submeshes -> 2); the example's drawCalls go 30 -> 18 (tools/cli/tests/perf/gem-roller.perf.json)."
       ]
     },
     {
@@ -394,9 +394,9 @@
       "suggestion": "Have the export (and validate) warn when a game script calls fa.call with a literal command name that only a project tool registers, naming the file and line, and say in docs which commands a shipped game has. The example should bake the scattered gems into the scene, or move the scatter code into a game module that both the tool and the script import.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e10a8c7d",
+      "engineIssue": "bc90d6e9",
       "notes": [
-        "Fixed in e10a8c7d: validate and the export already warned about fa.call of a tool command (shared check in js_scan); Gem Roller now imports scripts/scatter_gems.js from game.js and the tool, so the exported game places its gems.",
+        "Fixed in bc90d6e9: validate and the export already warned about fa.call of a tool command (shared check in js_scan); Gem Roller now imports scripts/scatter_gems.js from game.js and the tool, so the exported game places its gems.",
         "Seen while checking the format 2 pack (M70.4b) with an exported gem-roller player."
       ]
     }

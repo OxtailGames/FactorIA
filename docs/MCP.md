@@ -198,7 +198,7 @@ is lost. The new process sends `notifications/tools/list_changed` and `notificat
 differ) and a `notifications/message`, and the first `tools/call` result after it carries a last text block:
 
 ```
-[FactorIA notice] FactorIA was updated to 0.4.0 build 1a2b3c4d5e6f (the server was running 0.3.0 build f530fda3e543); the MCP
+[FactorIA notice] FactorIA was updated to 0.4.0 build 1a2b3c4d5e6f (the server was running 0.3.0 build 0f9e8d7c6b5a); the MCP
 server restarted itself in place, so the connection to the client was kept ... Nothing the client may count on was lost.
 ```
 
