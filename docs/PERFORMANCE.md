@@ -108,7 +108,7 @@ stay as a second net, but it is the band that absorbs the noise, not the retry.
 What the band does not fail, on purpose: a time that is **3 times its baseline for good** (a median of 5 ms that
 becomes 15 ms) or a memory leak of **about 30 MB** (the fail limit of a time is 6 times the baseline or 10 ms more; that
 of memory 1.5 times or 32 MB more) only give `warn`: the check passes and exits 0. We do not narrow the fail limits because
-CI already has false reds from noise (the p95 of PR 210 is described in feedback/ROADMAP.md, near M100.10), and a check
+CI already has false reds from noise (the p95 of PR 210 was one), and a check
 that cries wolf is switched off. So a `warn` is read, not ignored: CI lists every `_perf` test that passed inside the
 warning band, with the metric, the measured value and the limit, as a `::warning::` annotation and in the job summary
 (step "Performance warnings" of the Linux, Windows and macOS jobs, `scripts/ci-perf-warnings.sh`, which reads ctest's

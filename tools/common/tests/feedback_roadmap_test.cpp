@@ -1,10 +1,13 @@
 // The feedback loop cannot fall behind silently: `factoria feedback collect examples/*` is what the examples have open,
-// and feedback/ROADMAP.md must count it and name every entry (a package or a triage line). M100's audit found 33 entries
-// that nobody had triaged because the regeneration command named the examples by hand.
+// and the maintainers' roadmap must count it and name every entry (a package or a triage line). M100's audit found 33
+// entries that nobody had triaged because the regeneration command named the examples by hand. The roadmap is kept
+// outside this repository: the check reads `<FA_PRIVATE_DIR>/ROADMAP.md` (the variable's folder, else `private/` in the
+// checkout) and says so, without failing, when the file is not there and the variable is not set.
 #include <doctest.h>
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -86,8 +89,26 @@ void find_feedback_dirs(const stdfs::path& dir, int depth, std::vector<std::stri
 
 }  // namespace
 
-TEST_CASE("feedback/ROADMAP.md counts and names what the examples have open") {
+TEST_CASE("the roadmap, when the checkout has it, counts and names what the examples have open") {
     const stdfs::path root(FA_REPO_ROOT);
+    const char* envDir = std::getenv("FA_PRIVATE_DIR");
+    const bool dirGiven = envDir != nullptr && *envDir != '\0';
+    const stdfs::path roadmapPath = (dirGiven ? stdfs::path(envDir) : root / "private") / "ROADMAP.md";
+    const std::string shown = dirGiven ? (roadmapPath.generic_string()) : std::string("private/ROADMAP.md");
+    std::error_code existsEc;
+    const bool present = stdfs::exists(roadmapPath, existsEc);
+    if (!present && !dirGiven) {
+        MESSAGE("The roadmap is kept outside this repository, and "
+                << roadmapPath.generic_string()
+                << " is not here, so its count was not compared with the examples. To run the check, put the "
+                   "maintainers' folder in the checkout as `private/` (private/ROADMAP.md) or set "
+                   "FA_PRIVATE_DIR=<folder that holds ROADMAP.md>.");
+        return;
+    }
+    REQUIRE_MESSAGE(present, "FA_PRIVATE_DIR is set to \""
+                                 << std::string(envDir) << "\" but " << roadmapPath.generic_string()
+                                 << " does not exist. FA_PRIVATE_DIR must name the folder that holds ROADMAP.md "
+                                    "(unset it to skip the check).");
     std::vector<std::string> dirs;
     // `feedback collect` takes the directories it is given and finds the files below them; give it every one.
     find_feedback_dirs(root / "examples", 0, dirs);
@@ -97,11 +118,11 @@ TEST_CASE("feedback/ROADMAP.md counts and names what the examples have open") {
     REQUIRE_MESSAGE(rep.ok(), "feedback collect failed: " << rep.error().message);
     const Json& json = rep.value().json;
 
-    const std::string roadmap = read_all(root / "feedback" / "ROADMAP.md");
-    REQUIRE_MESSAGE(!roadmap.empty(), "feedback/ROADMAP.md is missing or empty.");
+    const std::string roadmap = read_all(roadmapPath);
+    REQUIRE_MESSAGE(!roadmap.empty(), shown << " is empty.");
     const std::string regen =
-        "Regenerate the count with `factoria feedback collect examples/* --out feedback/ROADMAP.md` "
-        "(it rewrites the whole file: put the status paragraph and the milestones section back).";
+        "Regenerate the count with `factoria feedback collect examples/* --out " + shown +
+        "` (it rewrites the whole file: put the status paragraph and the milestones section back).";
 
     // 1. The count line the generator wrote under the status paragraph.
     std::ostringstream want;
@@ -110,17 +131,16 @@ TEST_CASE("feedback/ROADMAP.md counts and names what the examples have open") {
     std::smatch m;
     static const std::regex countRe(R"((\d+) entries from (\d+) project\(s\), (\d+) distinct gap\(s\))");
     REQUIRE_MESSAGE(std::regex_search(roadmap, m, countRe),
-                    "feedback/ROADMAP.md has no line \"N entries from M project(s), K distinct gap(s)\". " << regen);
+                    shown << " has no line \"N entries from M project(s), K distinct gap(s)\". " << regen);
     CHECK_MESSAGE(
         m[0].str() == want.str(),
-        "feedback/ROADMAP.md counts \""
-            << m[0].str() << "\" but `feedback collect examples/*` gives \"" << want.str()
-            << "\". Triage the new or closed entries in the \"Next engine milestones\" part, then edit that line "
-            << "(and the ranked list). " << regen);
+        shown << " counts \"" << m[0].str() << "\" but `feedback collect examples/*` gives \"" << want.str()
+              << "\". Triage the new or closed entries in the \"Next engine milestones\" part, then edit that line "
+              << "(and the ranked list). " << regen);
 
     // 2. Every open entry is named below the generated list, as PREFIX/FB-nnnn (the list itself names all of them).
     const size_t cut = roadmap.find("\n# Next engine milestones");
-    REQUIRE_MESSAGE(cut != std::string::npos, "feedback/ROADMAP.md has no \"# Next engine milestones\" heading.");
+    REQUIRE_MESSAGE(cut != std::string::npos, shown << " has no \"# Next engine milestones\" heading.");
     const std::string below = roadmap.substr(cut);
     std::vector<std::pair<std::string, std::string>> refs;
     collect_refs(json, refs);
@@ -138,15 +158,16 @@ TEST_CASE("feedback/ROADMAP.md counts and names what the examples have open") {
     for (const auto& p : unknownProjects) unk << " \"" << p << "\"";
     CHECK_MESSAGE(
         unknownProjects.empty(),
-        "feedback/ROADMAP.md cites entries by a two-letter prefix, and these projects have none:"
-            << unk.str() << ". Pick a two-letter prefix that no row of prefixes() in "
+        shown
+            << " cites entries by a two-letter prefix, and these projects have none:" << unk.str()
+            << ". Pick a two-letter prefix that no row of prefixes() in "
             << "tools/common/tests/feedback_roadmap_test.cpp uses, add the row, and cite the project's entries "
-            << "with it in ROADMAP.md (e.g. XX/FB-0001); their citations are not checked until the project has one.");
+            << "with it in the roadmap (e.g. XX/FB-0001); their citations are not checked until the project has one.");
     std::ostringstream o;
     for (const auto& c : missing) o << " " << c;
     CHECK_MESSAGE(missing.empty(),
-                  "These open entries are named nowhere below \"# Next engine milestones\" in feedback/ROADMAP.md:"
-                      << o.str()
+                  "These open entries are named nowhere below \"# Next engine milestones\" in "
+                      << shown << ":" << o.str()
                       << ". Triage each one (read the entry; say whether it is a package, docs only, a duplicate or "
                          "held) and add a line "
                       << "naming it, e.g. \"- " << (missing.empty() ? "XX/FB-0001" : *missing.begin())

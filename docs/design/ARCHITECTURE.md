@@ -109,7 +109,7 @@ examples/          sample games (also used as integration tests: the `example_*`
 platforms/         android/ (Gradle), ios/, web/ and plugins/ (the store and ads backend plugins) packaging; windows/ (installer script) and linux/ (AppImage files) for the downloads
 cmake/             CMake functions, platform selection and toolchain files
 scripts/           build, test, CI and packaging scripts for each operating system (docs/design/BUILDING.md)
-feedback/          ROADMAP.md, done/ (one file per finished milestone) and the feedback collected from the examples
+feedback/          how the feedback of the examples is collected and triaged (the roadmap is kept outside the repository, in `private/` of a maintainer's checkout)
 external/          vendored third-party code (do not edit)
 ```
 

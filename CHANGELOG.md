@@ -6,6 +6,8 @@ Older versions, one file per minor version with its patch releases: [0.38](chang
 
 ## Unreleased
 
+- **For engine developers:** the roadmap and the list of finished milestones are no longer part of this repository (the maintainers keep them outside it; a checkout that has them holds them in `private/`, which git ignores). The `tooling` test that compares the roadmap with the examples' open feedback entries runs when `private/ROADMAP.md` exists (or `FA_PRIVATE_DIR` names the folder that holds `ROADMAP.md`) and says so, without failing, when it does not; with `FA_PRIVATE_DIR` set to a folder with no `ROADMAP.md` it fails.
+
 ## 0.39.0
 
 Ray tracing (M79): the scene keeps its acceleration structures (BLAS per mesh, refit for skinned meshes, one TLAS per frame) on Direct3D 12 (DXR), Vulkan (ray query) and Metal, and inline ray query kernels compiled with DXC (`factoria setup dxc`) trace them for hard and soft shadows of the sun and of point, spot and area lights, ambient occlusion, sharp and glossy reflections, translucency and global illumination (probes updated by rays, then per pixel), each denoised and each falling back to its raster technique per pixel or per device. DLSS Ray Reconstruction takes the reflections and the per-pixel GI; a path tracer is a reference mode for screenshots and for checking the raster look; lightmaps bake on the GPU as a fast preview from the editor, MCP and `factoria call`. Ray tracing reaches the graphics presets, the editor's Graphics window and the menu kit, and docs/RAY_TRACING.md says what each effect costs and when to use it.

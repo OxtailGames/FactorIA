@@ -39,8 +39,8 @@ smaller: Block Push, Ember Descent, Gem Roller, Neon Swarm and Sky Hopper. Each 
 
 CI builds and tests every pull request and every push to `main` on Linux, Windows
 (MSVC) and macOS, builds the iOS Simulator app and the Android library and APK, and runs them on the iOS Simulator and
-an Android emulator (not on real devices; see [docs/MOBILE.md](docs/MOBILE.md)). Open gaps and next milestones:
-[feedback/ROADMAP.md](feedback/ROADMAP.md).
+an Android emulator (not on real devices; see [docs/MOBILE.md](docs/MOBILE.md)). What shipped is in
+[CHANGELOG.md](CHANGELOG.md); the maintainers keep the roadmap outside this repository.
 
 ## Try it
 
@@ -128,7 +128,7 @@ templates/   project templates for `factoria new`
 skills/      the engine's AI skills, baked into the binary
 schemas/     JSON schemas for the project, ENGINE_FEEDBACK and AI configuration
 examples/    example games made by AI agents, also used as integration tests
-feedback/    roadmap built from the examples' ENGINE_FEEDBACK.json files
+feedback/    how the examples' ENGINE_FEEDBACK.json files reach the engine, and submitted feedback (inbox/)
 platforms/   packaging for Android (Gradle), iOS and the web, the store and ads backend plugins,
              the Windows installer and the AppImage files
 ```
@@ -191,7 +191,7 @@ Read [CLAUDE.md](CLAUDE.md) and [docs/design/ARCHITECTURE.md](docs/design/ARCHIT
 - [docs/design/CUSTOM_SHADERS.md](docs/design/CUSTOM_SHADERS.md), [docs/design/CUSTOM_SHADERS_KINDS.md](docs/design/CUSTOM_SHADERS_KINDS.md), [docs/design/CUSTOM_SHADERS_FULL.md](docs/design/CUSTOM_SHADERS_FULL.md) and [docs/design/CUSTOM_SHADERS_PACKAGES.md](docs/design/CUSTOM_SHADERS_PACKAGES.md): design of custom shaders per material, of its sprite and sky kinds, of full shaders and passes for meshes, and its work packages.
 - [docs/design/FEEDBACK_SHARING.md](docs/design/FEEDBACK_SHARING.md): design of sharing feedback with the engine developer.
 - [docs/design/SCRIPT_DEBUGGER.md](docs/design/SCRIPT_DEBUGGER.md): design of the script debugger and its VS Code extension.
-- [feedback/ROADMAP.md](feedback/ROADMAP.md) (open gaps and next milestones) and [CHANGELOG.md](CHANGELOG.md).
+- [CHANGELOG.md](CHANGELOG.md): what shipped in each version (the roadmap is kept outside this repository).
 
 ## License
 
