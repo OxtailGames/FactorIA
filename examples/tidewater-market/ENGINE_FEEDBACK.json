@@ -1285,7 +1285,7 @@
       "severity": "minor",
       "title": "feedback collect merges different gaps whose titles share a few words",
       "missing": "`factoria feedback collect` ranks FB-0010 ('No rich text or inline icons in a Text or Button label') and FB-0011 ('Buttons are text only: no icon or icon plus text button') as one gap: the titles share 'no', 'icon', 'text' and 'button', and the title similarity (tools/common/src/feedback.cpp) passes the merge threshold. They are different features (styled runs inside a label; a Button that draws a sprite). The ranked list then under-counts distinct gaps and hides one of them behind the other's suggestion, and there is no way to say 'these two are not the same'.",
-      "workaround": "None: the ranked list in feedback/ROADMAP.md shows both ids under one heading; the triage reads both entries.",
+      "workaround": "None: the ranked list in the roadmap shows both ids under one heading; the triage reads both entries.",
       "workaroundFiles": [],
       "suggestion": "Weigh the `missing` text and the category more than shared short words of the title, or let an entry list ids it must never merge with (\"distinctFrom\": [\"FB-0011\"]), and print the merged groups with their scores so a triage can check them.",
       "effort": "small",

@@ -22,7 +22,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-19: tr -d CR on the output.",
-        "2026-10-19 triage: confirmed open; work package M24.3 (Docs print LF on Windows) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.3 (Docs print LF on Windows) in the roadmap.",
         "Fixed in b6c6f3b (M24.3): the embedded docs are LF on every checkout, so `factoria docs read <name> > file` and `docs.read` carry no CR on Windows; read them directly, no tr -d or replace needed."
       ],
       "engineIssue": "#95"
@@ -48,7 +48,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.1 (Script values and promise rejections) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.1 (Script values and promise rejections) in the roadmap.",
         "Fixed in 1341def (M24.1): game.screenSize and screen.size no longer copy the project settings (about as cheap as world.find); read them where needed, which also follows design size and window changes. scripts/follow_camera.js reads it every frame now, no cached copy."
       ],
       "engineIssue": "#96"
@@ -75,7 +75,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.11 (2D: lit shapes and moving platforms) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.11 (2D: lit shapes and moving platforms) in the roadmap.",
         "Fixed in 3768d21 (M24.11): a dynamic RigidBody2D standing on a moving kinematic one is carried by it, also when its script sets velocity.x every frame (that velocity is relative to the platform). Lantern Keep's player no longer adds the platform's speed itself."
       ],
       "engineIssue": "#103"
@@ -102,7 +102,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in the roadmap.",
         "Fixed in 43e03b9 (M24.5): MENUS.md prints the recipe's locales/es.json next to en.json, and a doc test checks both have the fixture's keys. Copy it instead of translating by hand. Lantern Keep keeps its own es.json and the test that both tables have the same keys (a check worth keeping)."
       ],
       "engineIssue": "#100"
@@ -129,7 +129,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.2 (Pause keeps the game speed) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.2 (Pause keeps the game speed) in the roadmap.",
         "Fixed in acd5baf (M24.2): the test game object has paused (read and write, as in scripts); assert game.paused instead of time.scale. A member it does not have throws with a did-you-mean (game.pasued names paused). Lantern Keep tests assert game.paused."
       ],
       "engineIssue": "#101"
@@ -158,7 +158,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.11 (2D: lit shapes and moving platforms) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.11 (2D: lit shapes and moving platforms) in the roadmap.",
         "Fixed in 3768d21 (M24.11): `Shape2D.lit` shades world-space shapes by Light2D and the ambient light, like `Sprite.lit`."
       ],
       "engineIssue": "#103"
@@ -184,7 +184,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.10 (ASCII levels keep prefab references) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.10 (ASCII levels keep prefab references) in the roadmap.",
         "Fixed in 7c29612 (M24.10): a map can take a shared legend with `legendFrom`; its unused entries are not warned about. Lantern Keep's six maps share levels/legend.json."
       ],
       "engineIssue": "#106"
@@ -212,7 +212,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-19 triage: FB-0030 merged here (the same gap, met again by the achievements and leaderboards panels).",
-        "2026-10-19 triage: confirmed open; work package M24.12 (Entity activation) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.12 (Entity activation) in the roadmap.",
         "Fixed in f4071e7 (M24.12): `onEnable()` / `onDisable()` run every time the entity or an ancestor is shown or hidden, before the frame is drawn. Lantern Keep's panels refresh themselves in onEnable."
       ],
       "engineIssue": "#107"
@@ -238,7 +238,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package of M20 (ASCII map edits for AIs) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package of M20 (ASCII map edits for AIs) in the roadmap.",
         "Fixed in 9b92c45 (M20.1): scene.ascii_edit {file, ops, rebuild?, dryRun?} edits the rows of a scene.import_ascii args file with fill, replace (whole map or a rect), insertColumns, deleteColumns and put (at a row, or above the ground of a column), all or nothing, and rebuilds the level when the file has a path; its result lists every object's glyph and cell. Lantern Keep's maps stay as they are (levels/<id>.json was already the source of truth)."
       ],
       "engineIssue": "#134"
@@ -265,7 +265,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.12 (Entity activation) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.12 (Entity activation) in the roadmap.",
         "Fixed in f4071e7 (M24.12): an inactive entity with a Script already has its `.behaviour`; onStart and onEnable run before the first frame it is drawn in. level_end.js has no open() any more and the refresh exports are gone."
       ],
       "engineIssue": "#107"
@@ -294,7 +294,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-19: None: the labels stay left-aligned in Arabic too (readable, but the ragged edge is on the wrong side). Listed in the README as a limit.",
-        "2026-10-19 triage: confirmed open; work package M24.8 (Widgets that fit their labels) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.8 (Widgets that fit their labels) in the roadmap.",
         "Fixed in 7506b4b (M24.8): a multi-line Button label centres each line, `Button.maxWidth` wraps it and a label that still does not fit is clipped to the button."
       ],
       "engineIssue": "#109"
@@ -316,7 +316,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in the roadmap.",
         "Fixed in da5f957 (M24.7): `factoria test <project> tests/x.test.js` (several files, a folder or a glob) and MCP project.test `files`; a path that is not a test file is an error saying what to pass."
       ],
       "engineIssue": "#105"
@@ -342,7 +342,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.6 (Save file safety; the save recipe is M21's 'finish your game' guide) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.6 (Save file safety; the save recipe is M21's 'finish your game' guide) in the roadmap.",
         "Fixed in d891e92 (M24.6): storage saves through a temporary file and rename; a storage.json that does not parse is kept as storage.corrupt.json (with a warning) and never overwritten, storage.corrupt is true and storage starts empty. In tests, game.setStorageText(text) sets the text the next load reads (SCRIPTING.md, storage). The save recipe with versions is M21's. Lantern Keep keeps its per-slot parse (a slot can be valid JSON of the wrong shape or from a newer game), and tests/saves.test.js starts from a damaged storage.json with game.setStorageText.",
         "2026-10-20: the save recipe (version field, one migration step per old version, three slots, damaged-save screen, cloud copy, web and mobile save paths) is section 3 of docs/FINISHING.md (M21), written from scripts/saves.js. Nothing is left open."
       ],
@@ -369,7 +369,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package of M21 (store page material: assets.draw_icon) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package of M21 (store page material: assets.draw_icon) in the roadmap.",
         "Fixed in 0e49b93 (M21): `assets.draw_icon @tools/icon.json` (docs/ASSETS.md) draws the 1024x1024 icon and the 432x432 Android foreground from shapes, gradients and text, on the CPU, with no provider and no Python; they go where the export looks, recorded as original. Lantern Keep's tools/make_icon.py is gone."
       ],
       "engineIssue": "#116"
@@ -397,7 +397,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-19 triage: FB-0034 merged here (the same cause, met again for the legend prefabs).",
-        "2026-10-19 triage: confirmed open; work package M24.10 (ASCII levels keep prefab references) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.10 (ASCII levels keep prefab references) in the roadmap.",
         "Fixed in 7c29612 (M24.10): in file mode `scene.import_ascii` writes legend prefabs and the base scene's prefab entities as prefab references, so editing a prefab changes every level without importing the maps again."
       ],
       "engineIssue": "#106"
@@ -422,7 +422,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in the roadmap.",
         "Fixed in 343a7b8 (M24.9): `export.exclude` in factoria.json (project-relative globs) leaves folders out of every export; Lantern Keep excludes levels/, screenshots/ and store/."
       ],
       "engineIssue": "#104"
@@ -444,7 +444,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package of M21 (store page material: render scale) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package of M21 (store page material: render scale) in the roadmap.",
         "Fixed in 97f693c (M21): `game.screenshot {scale}` (0.25 to 4) and `factoria run --render-scale S` draw the same frame at a larger native size, sharp, with the same HUD and visible area; Lantern Keep's store screenshots are made that way (SHIPPING.md), and tools/make_screenshots.py is gone."
       ],
       "engineIssue": "#117"
@@ -466,7 +466,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in the roadmap.",
         "Fixed in 343a7b8 (M24.9): `publish.<store> {dryRun: true}` returns the plan with a warning for each missing uploader, secret or app id; SHIPPING.md uses it with no fake tools."
       ],
       "engineIssue": "#104"
@@ -488,7 +488,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in the roadmap.",
         "Fixed in 343a7b8 (M24.9): `factoria_player --frames N` (and the exported game) draws N frames and exits 0, or 1 after a script error; EXPORTING.md, \"CI for your game\"."
       ],
       "engineIssue": "#104"
@@ -513,7 +513,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in the roadmap.",
         "Fixed in 343a7b8 (M24.9): `factoria validate` warns about textures whose sides are not multiples of 4 when platforms has android or ios."
       ],
       "engineIssue": "#104"
@@ -538,7 +538,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in the roadmap.",
         "Fixed in da5f957 (M24.7): `game.click`, `game.touch` and `game.touchStart` take a widget id or an Entity (centre of its laid-out rectangle, safe area included); MOBILE.md documents when the rectangles move. shipping.test.js taps the controls by id."
       ],
       "engineIssue": "#105"
@@ -560,7 +560,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package of M21 (publishing guides: what each export needs offline) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package of M21 (publishing guides: what each export needs offline) in the roadmap.",
         "Fixed in 02b1555 (M21): docs/EXPORTING.md has a 'What each export needs' table, one row per export: what it needs, and for a Windows, Linux and macOS host whether a source build can make it offline, after a setup download, or not at all."
       ],
       "engineIssue": "#115"
@@ -582,7 +582,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package of M23 (Microsoft Store: MSIX) and M21 (Microsoft Store guide) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package of M23 (Microsoft Store: MSIX) and M21 (Microsoft Store guide) in the roadmap.",
         "2026-10-20: docs/EXPORTING.md has a 'Microsoft Store' section (`02b1555`, M21) saying what the engine covers (the Windows folder export) and the steps to take by hand. The entry stays open for M23's export.windows.msix.",
         "Fixed in 6364e8f (M23.2): `factoria export --platform windows --format msix` (or export.windows.format \"msix\") writes <slug>-windows.msix next to the Windows folder from any computer, with the manifest from export.windows.msix (identityName, publisher, publisherDisplayName from Partner Center), the tile logos cut from the icon and the block map. `sign.windows` signs it with a pfx from the environment (or a self-signed test certificate on Windows) and `publish.microsoft` uploads it with the Microsoft Store Developer CLI. Lantern Keep had no workaround to drop; its SHIPPING.md points at the export."
       ]
@@ -611,7 +611,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.14 (Translated store catalog) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.14 (Translated store catalog) in the roadmap.",
         "Fixed in 2e0fa55 (M24.14): catalog entries take `nameKey`, `descriptionKey` and `titleKey`, and achievements.list() / purchases.products() return the text in the current language; PLATFORM.md says which stores read them. Lantern Keep's catalog names its locale keys and the achievements panel shows the texts the list returns."
       ],
       "engineIssue": "#108"
@@ -639,7 +639,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in the roadmap.",
         "Fixed in da5f957 (M24.7): `game.platform.set({ backend: \"none\" })` makes the fake behave as the none backend until reset(); unknown options are refused with a \"did you mean\". The store tests use it."
       ],
       "engineIssue": "#105"
@@ -665,7 +665,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.1 (component colours as arrays) and M24.7 (toMatchObject, naming the missing method; Array.prototype.at already works) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.1 (component colours as arrays) and M24.7 (toMatchObject, naming the missing method; Array.prototype.at already works) in the roadmap.",
         "Colours part fixed in 1341def (M24.1): component colours are array-like (index, length, spread), so Array.from(color) is not needed; Array.prototype.at works. tests/store_screens.test.js indexes colours and uses .at(-1) now. Still open: expect().toMatchObject and naming the missing method (M24.7).",
         "Fixed in da5f957 (M24.7): `expect(x).toMatchObject(subset)`, and a \"not a function\" error shows the source line with a caret under the call, so the missing method is named. Three tests use toMatchObject."
       ],
@@ -693,7 +693,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.4 (Focus navigation) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.4 (Focus navigation) in the roadmap.",
         "Fixed in 2ee41ac (M24.4): when the only autoFocus widget is not interactable, focus goes to the first interactable widget in reading order, so greyed-out buy buttons no longer leave the pad without focus. Lantern Keep greys out the buy buttons without a store (scripts/ui/shop.js), and a test checks the pad lands on the colour button."
       ],
       "engineIssue": "#98"
@@ -719,7 +719,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in the roadmap.",
         "Fixed in da5f957 (M24.7): SCRIPTING.md and AI_GUIDE say that a world.emit from a test reaches listeners at the next game.step while platform answers are ready at once; the store tests' settle() now points at the docs."
       ],
       "engineIssue": "#105"
@@ -745,7 +745,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.1 (Script values and promise rejections) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.1 (Script values and promise rejections) in the roadmap.",
         "Fixed in 1341def (M24.1): a rejection is reported only if it is still unhandled once the job queue drains (as Node does), so chain.then(() => fn()).catch(() => {}) logs nothing; a real unhandled rejection is still reported, once. scripts/store_stats.js uses that plain chain now."
       ],
       "engineIssue": "#96"
@@ -773,7 +773,7 @@
       "occurrences": 1,
       "status": "duplicate",
       "notes": [
-        "2026-10-19 triage: duplicate of FB-0008 (onEnable/onDisable; its occurrences were merged there) and FB-0010 (behaviour is null before the first activation). Both are work package M24.12 (Entity activation) in feedback/ROADMAP.md."
+        "2026-10-19 triage: duplicate of FB-0008 (onEnable/onDisable; its occurrences were merged there) and FB-0010 (behaviour is null before the first activation). Both are work package M24.12 (Entity activation) in the roadmap."
       ]
     },
     {
@@ -801,7 +801,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-19: scripts/ui/text_fit.js fitWidgets(root) (sizes by measureText and by the number of lines) is called from each screen's refresh function; tests/helpers/screens.js checks every screen in every language.",
-        "2026-10-19 triage: confirmed open; work package M24.8 (Widgets that fit their labels) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.8 (Widgets that fit their labels) in the roadmap.",
         "Fixed in 7506b4b (M24.8): `autoSize` on Button, Toggle and Slider keeps the design size and grows the widget to its label at the current text size and language. Lantern Keep's scripts/ui/text_fit.js is gone: every Button, Toggle and Slider has autoSize."
       ],
       "engineIssue": "#109"
@@ -855,7 +855,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-19: None in the game (making the locked levels focusable would change what the pad can reach). Left as it is: Left or Up comes back to the level.",
-        "2026-10-19 triage: confirmed open; work package M24.4 (Focus navigation) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.4 (Focus navigation) in the roadmap.",
         "Fixed in 2ee41ac (M24.4): directional focus prefers widgets lined up with the focused one (overlapping it across the pressed direction), nearest first; only when there is none, the nearest in that half of the screen. DpadRight from a tab reaches the next tab, Down reaches the wide widget below (MENUS.md, Focus and navigation). tests/accessibility.test.js walks the options tabs with DpadRight now, at 100% and 200% text."
       ],
       "engineIssue": "#98"
@@ -878,7 +878,7 @@
       "occurrences": 1,
       "status": "duplicate",
       "notes": [
-        "2026-10-19 triage: duplicate of FB-0015 (its occurrences were merged there): the same cause, the file-mode scene.import_ascii writes expanded prefab copies for the base scene's entities and for legend objects alike. Work package M24.10 (ASCII levels keep prefab references) in feedback/ROADMAP.md."
+        "2026-10-19 triage: duplicate of FB-0015 (its occurrences were merged there): the same cause, the file-mode scene.import_ascii writes expanded prefab copies for the base scene's entities and for legend objects alike. Work package M24.10 (ASCII levels keep prefab references) in the roadmap."
       ]
     },
     {
@@ -904,7 +904,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-19: tests/helpers/screens.js sums the measured children of every row and column panel and compares with the panel's rectangle.",
-        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in the roadmap.",
         "Fixed in da5f957 (M24.7): `ui.rectOf(entityOrId)` gives the laid-out rectangle of a widget or screen-space Text, and ui.state lists screen-space Text entities with their rect."
       ],
       "engineIssue": "#105"
@@ -932,7 +932,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.2 (Pause keeps the game speed) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.2 (Pause keeps the game speed) in the roadmap.",
         "Fixed in acd5baf (M24.2): game.paused = true remembers time.scale and game.paused = false restores it; setting time.scale while paused changes the value to restore (SCRIPTING.md, time.scale; MENUS.md, pause menu). Lantern Keep sets the assist speed at level start (level.js) and, while paused, from the options panel; nothing re-applies it after a resume."
       ],
       "engineIssue": "#101"
@@ -960,7 +960,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package of M22 (accessibility: Camera.colorFilter) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package of M22 (accessibility: Camera.colorFilter) in the roadmap.",
         "Fixed in 972974b (M22.2): Camera.colorFilter (none, greyscale, highContrast, protanopia, deuteranopia, tritanopia) is the last post-process of the frame, HUD included, so screenshots and videos show it; the simulate option of game.screenshot and factoria run --screenshot-simulate save a screenshot as a colour-blind player sees it without changing the game (Machado 2009). The menus kit has the option (docs/MENUS.md). Lantern Keep does not use it yet: its Pillow check and shape-and-outline hazards stay."
       ],
       "engineIssue": "#127"
@@ -983,7 +983,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package of M22 (accessibility: platform.accessibility, screen-reader hooks) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package of M22 (accessibility: platform.accessibility, screen-reader hooks) in the roadmap.",
         "Fixed in 8d40daa (M22.4) and 40ebbeb (M22.3): ui.speak(text) / ui.stopSpeaking() / ui.speechAvailable speak with the system's text to speech (game.spoken() in tests), and the ui.focus event gives the focused widget to speak; game.accessibility { textScale, reduceMotion, highContrast, screenReader } reads the system's settings in a game with its own window (the defaults in headless runs and tests; game.setAccessibility in tests). It is game.accessibility, not platform.accessibility: platform is the store services. The menus kit starts its options from it and reads menus aloud (docs/MENUS.md). Lantern Keep does not use them yet."
       ],
       "engineIssue": "#128, #131"
@@ -1010,7 +1010,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.1 (Script values and promise rejections) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.1 (Script values and promise rejections) in the roadmap.",
         "Fixed in 1341def (M24.1): component vectors and colours read from scripts are array-like: padding[1], size[0] (writes too), [...size], destructuring, for...of and Array.from work, and .x .y .z .w / .r .g .b .a are kept. Colours and rects have a numeric length; vectors keep length() as the magnitude. factoria.d.ts types them that way. Lantern Keep destructures padding and sizes in scripts/ui/text_fit.js and tests/helpers/screens.js."
       ],
       "engineIssue": "#96"
@@ -1037,7 +1037,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.13 (Right-to-left layouts) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.13 (Right-to-left layouts) in the roadmap.",
         "Fixed in 2320973 (M24.13): `Text.align` takes start / end (follow the language's direction), `Panel.direction` ltr / rtl / auto mirrors rows and grids, and scripts read `i18n.direction`; LOCALIZATION.md section 6 has a HUD-corner recipe for anchors and pivots. Lantern Keep's row panels use direction auto and the HUD align start / end."
       ],
       "engineIssue": "#110"
@@ -1064,7 +1064,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.8 (Widgets that fit their labels) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.8 (Widgets that fit their labels) in the roadmap.",
         "Fixed in 7506b4b (M24.8): `ScrollList.fill` takes the height the other children of a fitted column leave, up to the screen; a fit Panel larger than the screen logs one warning naming it, and factoria validate reports it. The achievements and leaderboards lists use fill."
       ],
       "engineIssue": "#109"
@@ -1090,7 +1090,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in the roadmap.",
         "Fixed in 43e03b9 (M24.5): TEXT.md, Measuring, says ui.measureText is exact in factoria test, factoria call and headless runs (offscreen renderer); the 0.6 x fontSize estimate only happens when no graphics device can be created. Lantern Keep needs no change: tests/helpers/screens.js already trusted ui.measureText."
       ],
       "engineIssue": "#100"
@@ -1117,7 +1117,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in the roadmap.",
         "Fixed in 43e03b9 (M24.5): i18n.import writing a language that has no file yet copies the shape of the default table (nested when it is nested). Lantern Keep needs no change: its de.json and ar.json were already rewritten nested."
       ],
       "engineIssue": "#100"
@@ -1143,7 +1143,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in the roadmap.",
         "Fixed in 343a7b8 (M24.9): the .gitignore of new projects lists build/."
       ],
       "engineIssue": "#104"
@@ -1169,7 +1169,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in feedback/ROADMAP.md.",
+        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in the roadmap.",
         "Fixed in 43e03b9 (M24.5): LOCALIZATION.md calls i18n.state a command (fa.call('i18n.state')), and the Text.font doc (and COMPONENTS.md) lists Hebrew and Arabic in the built-in font, as TEXT.md does. Lantern Keep needs no change: tests/languages.test.js already uses the command."
       ],
       "engineIssue": "#100"

@@ -87,6 +87,11 @@ ctest --test-dir build/dev --output-on-failure
 - Feedback from installations (`factoria feedback pull`): triage it before you act on it. Reports that claim a gap the
   engine already has (a component, field or command that exists) are rejected with a reason, never built (`feedback
   reject --suggested`, `keep`, `unreject`; docs/ENGINE_FEEDBACK.md, "Triage loop").
+- The roadmap and the list of finished milestones are not in this repository. The maintainer keeps them in a private
+  one, cloned into the main checkout as `private/` (`private/ROADMAP.md`, `private/done/`; git ignores the folder).
+  Edit and commit them there (`git -C private ...`), never here, and never copy their text into a tracked file, a
+  commit message or a PR. A worktree has no `private/`: read the main checkout's. Public text says what a feature
+  does: no tracked file, commit message or PR names an outside project, account or post as where an idea came from.
 
 ## Agent work (every session on this project)
 
@@ -161,9 +166,11 @@ progress.
   the push (its test, stress and platform steps took hours and CI still found failures): CI is the cross-platform
   check. The full preflight and the native Windows check on the user's PC (`scripts/ci-remote-windows.sh`) are for
   when the user asks or to confirm a CI fix; the PC is often off: never switch it on or wake it, ask the user.
-- Feedback guard: `factoria feedback collect examples/*` must match feedback/ROADMAP.md (count line, every open entry
-  named); the case "feedback/ROADMAP.md counts and names..." of the `tooling` tests (`ctest -L tooling`) fails
-  otherwise and says what to add.
+- Feedback guard: `factoria feedback collect examples/*` must match `private/ROADMAP.md` (count line, every open
+  entry named); the case "the roadmap, when the checkout has it, counts and names..." of the `tooling` tests
+  (`ctest -L tooling`) fails otherwise and says what to add. Where there is no `private/` (CI, a worktree) the case
+  passes with a message and compares nothing, so run it in the main checkout or with
+  `FA_PRIVATE_DIR=<main checkout>/private`.
 - Open the PR and turn on auto-merge with a merge commit (no need to ask): `gh pr merge <n> --auto --merge`. If CI
   fails, fix it on the same branch and push again; never merge red. A PR that changes `.github/workflows/release.yml`
   is the exception: its Release run is not part of `CI result`, so merge it by hand once that run is green too.

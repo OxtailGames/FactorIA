@@ -1,7 +1,7 @@
 # Design: custom shaders per material
 
 Status: **accepted** (2026-10-18); packages 1-4 built. Closes the M18 item "Custom shaders per material: not built"
-(feedback/ROADMAP.md, M18 "Left open"). Written against `m18/integration` (`7b5450a`): `mesh.glsl` with the PBR
+(the roadmap, M18 "Left open"). Written against `m18/integration` (`7b5450a`): `mesh.glsl` with the PBR
 `mesh` and `mesh_skin` programs, instanced batches (`mesh_batch.h`), `shadow.glsl`.
 
 This is a design document for engine developers. It is not embedded documentation for game makers: that is
