@@ -30,7 +30,7 @@ struct BuildId {
     // True when the fingerprint can be compared (a program built outside git says "unknown" and has none to compare).
     bool comparable() const { return !fingerprint.empty() && fingerprint != "unknown"; }
     bool empty() const { return version.empty() && fingerprint.empty(); }
-    // "0.3.0 build f530fda3e543", "0.3.0" or "an unidentified build".
+    // "0.3.0 build 0f9e8d7c6b5a", "0.3.0" or "an unidentified build".
     std::string label() const;
     Json to_json() const;
 };

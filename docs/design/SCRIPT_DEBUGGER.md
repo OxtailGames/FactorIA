@@ -3,7 +3,7 @@
 Status: **accepted** (2026-10-22). Closes the M20 item "A script debugger: breakpoints and stepping in QuickJS behind a
 Debug Adapter Protocol server, for VS Code" and its acceptance criterion "An integration test drives the DAP server over
 stdio and stops at a breakpoint in a template behaviour" (the roadmap, M20). Written against `main` at
-`379ade0`. The contract between the packages is `engine/script/include/fa/script/debugger.h`.
+`8b9cf49`. The contract between the packages is `engine/script/include/fa/script/debugger.h`.
 
 This is a design document for engine developers. Game makers and AIs read `docs/DEBUGGING.md` (package E).
 

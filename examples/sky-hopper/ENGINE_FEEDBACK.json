@@ -23,9 +23,9 @@
       "suggestion": "Resolve ./ and ../ relative to the importing module (or document the root-relative rule in docs/SCRIPTING.md and mention it in the validate hint).",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: './x.js' and '../x.js' now resolve relative to the importing module ('scripts/x.js' stays project-root relative); escaping the project root is an error naming the import. Documented in docs/SCRIPTING.md > Imports."
+        "Fixed in fcb4af1: './x.js' and '../x.js' now resolve relative to the importing module ('scripts/x.js' stays project-root relative); escaping the project root is an error naming the import. Documented in docs/SCRIPTING.md > Imports."
       ]
     },
     {
@@ -47,9 +47,9 @@
       "suggestion": "Have validate instantiate/inspect script class fields and flag unknown props with did-you-mean.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: factoria validate now reports Script.props that are not class fields (warning with did-you-mean). Declare props as class fields."
+        "Fixed in fcb4af1: factoria validate now reports Script.props that are not class fields (warning with did-you-mean). Declare props as class fields."
       ]
     },
     {
@@ -68,9 +68,9 @@
       "suggestion": "factoria new should write the real generated typings.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: factoria new writes the real generated typings to types/factoria.d.ts; refresh with 'factoria api --dts --project .'. Remove the placeholder workaround."
+        "Fixed in fcb4af1: factoria new writes the real generated typings to types/factoria.d.ts; refresh with 'factoria api --dts --project .'. Remove the placeholder workaround."
       ]
     },
     {
@@ -93,9 +93,9 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: no CameraFollow2D / level-bounds clamp helper; docs/AI_GUIDE.md 9.6 only shows an unclamped follow camera.",
+        "Still open after fcb4af1: no CameraFollow2D / level-bounds clamp helper; docs/AI_GUIDE.md 9.6 only shows an unclamped follow camera.",
         "Docs: AI_GUIDE 9.6 'Camera follow with level bounds' recipe; AGENTS.md conventions on 2D origin.",
-        "Since ad0922f: entity.bounds() gives a Tilemap's world rectangle; follow_camera.js clamps to it (\"bounds\": \"map\") and no scene carries hand-set camera limits."
+        "Since 914d91e: entity.bounds() gives a Tilemap's world rectangle; follow_camera.js clamps to it (\"bounds\": \"map\") and no scene carries hand-set camera limits."
       ],
       "engineIssue": "this release"
     },
@@ -118,10 +118,10 @@
       "suggestion": "Add rng.seed(n) and/or rng.create(seed) returning an independent generator.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: rng.seed(n) reseeds the world RNG (seed -> level determinism in tools and tests).",
-        "Since ad0922f: rng.create(seed) is an independent seeded generator that never touches the world RNG; tools/generate_level.js uses it instead of its own PRNG."
+        "Fixed in fcb4af1: rng.seed(n) reseeds the world RNG (seed -> level determinism in tools and tests).",
+        "Since 914d91e: rng.create(seed) is an independent seeded generator that never touches the world RNG; tools/generate_level.js uses it instead of its own PRNG."
       ]
     },
     {
@@ -143,9 +143,9 @@
       "suggestion": "Add raycast option {ignore: entity|id} (or auto-ignore the origin's own collider), document inside-start behaviour.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: physics.raycast(a, b, { ignore: this.entity }) / raycast3d(..., { ignore }); colliders containing the ray origin are skipped; triggers skipped unless ignoreTriggers:false."
+        "Fixed in fcb4af1: physics.raycast(a, b, { ignore: this.entity }) / raycast3d(..., { ignore }); colliders containing the ray origin are skipped; triggers skipped unless ignoreTriggers:false."
       ]
     },
     {
@@ -167,9 +167,9 @@
       "suggestion": "Add entity.isTouching(dir) / physics.shapeCast and a lighter raycast result (entity id).",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: Use entity.isTouching([1,0]) (wall right) / isTouching([0,1]) (ceiling) / isGrounded(), and a short downward physics.raycast with { ignore } for ledge checks. No shape-cast yet (see ROADMAP)."
+        "Fixed in fcb4af1: Use entity.isTouching([1,0]) (wall right) / isTouching([0,1]) (ceiling) / isGrounded(), and a short downward physics.raycast with { ignore } for ledge checks. No shape-cast yet (see ROADMAP)."
       ]
     },
     {
@@ -191,9 +191,9 @@
       "suggestion": "Add ParticleEmitter oneShot/destroyOnFinish and document that burst needs emitting=true (or make burst independent).",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: ParticleEmitter.burst fires with emitting:false; particles.burst(entity, n) / entity.emitBurst(n) spawn on demand; ParticleEmitter.autoDestroy:true destroys the entity when the burst finishes. Drop the cleanup timers."
+        "Fixed in fcb4af1: ParticleEmitter.burst fires with emitting:false; particles.burst(entity, n) / entity.emitBurst(n) spawn on demand; ParticleEmitter.autoDestroy:true destroys the entity when the burst finishes. Drop the cleanup timers."
       ]
     },
     {
@@ -216,9 +216,9 @@
       "suggestion": "Register fs.* in the test runtime (sandboxed to project), or provide game.writeFile / a way for tests to load a scene from JSON (game.loadJson).",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: Use game.loadJson(sceneObject) in tests to load a scene from data (no fs.* needed). fs.* is still not registered in the test runtime."
+        "Fixed in fcb4af1: Use game.loadJson(sceneObject) in tests to load a scene from data (no fs.* needed). fs.* is still not registered in the test runtime."
       ]
     },
     {
@@ -240,9 +240,9 @@
       "suggestion": "Document module-singleton persistence guarantee or add game.session / world.persistent state; make hot reload semantics clear.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: Import { session } from 'factoria': a plain object that survives scene loads for the run (reset per test file). Module-level variables also persist across scene loads."
+        "Fixed in fcb4af1: Import { session } from 'factoria': a plain object that survives scene loads for the run (reset per test file). Module-level variables also persist across scene loads."
       ]
     },
     {
@@ -264,9 +264,9 @@
       "suggestion": "Reload project modules between test files/tests or document the isolation rules; allow top-level beforeEach.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: Each test FILE now gets fresh module instances, empty in-memory storage and empty session. Within one file state still carries over (reset it yourself); top-level beforeEach is still only inside describe."
+        "Fixed in fcb4af1: Each test FILE now gets fresh module instances, empty in-memory storage and empty session. Within one file state still carries over (reset it yourself); top-level beforeEach is still only inside describe."
       ]
     },
     {
@@ -285,9 +285,9 @@
       "suggestion": "Add 'factoria repl' / 'factoria call --steps N' / a --session flag, and state in call --help that it is stateless.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: Use 'factoria session' (JSON lines on one engine) or 'factoria call --batch [...]' (commands in order on one engine); 'factoria call' also takes --frames-before/--press/--input. call --help states that a single call is stateless."
+        "Fixed in fcb4af1: Use 'factoria session' (JSON lines on one engine) or 'factoria call --batch [...]' (commands in order on one engine); 'factoria call' also takes --frames-before/--press/--input. call --help states that a single call is stateless."
       ]
     },
     {
@@ -306,9 +306,9 @@
       "suggestion": "Add Collider2D oneWay field enforced by physics, also for Tilemap solid tiles (per-tile one-way list).",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: Collider2D.oneWay:true (verified: body jumps up through the platform and lands on it)."
+        "Fixed in fcb4af1: Collider2D.oneWay:true (verified: body jumps up through the platform and lands on it)."
       ]
     },
     {
@@ -331,11 +331,11 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: no tilemap object layer or ASCII/prefab import command.",
-        "Fixed in ae8bb15: scene.import_ascii {rows, legend, tilemap, position, anchor, save} builds the Tilemap and spawns prefabs (coins, enemies, a player spawn with a fixed id) at the cell centres, tagged tilemap:<entity>; re-importing replaces them. tools/generate_level.js can be replaced by one call with the level's ASCII rows (AI_GUIDE 9.8).",
-        "Workaround removed in 9dc7fd5: levels/level1.json and level2.json are ASCII maps built with scene.import_ascii (file mode with \"path\" since cc789f7); generate_level composes rows and builds through the same command."
+        "Still open after fcb4af1: no tilemap object layer or ASCII/prefab import command.",
+        "Fixed in b807902: scene.import_ascii {rows, legend, tilemap, position, anchor, save} builds the Tilemap and spawns prefabs (coins, enemies, a player spawn with a fixed id) at the cell centres, tagged tilemap:<entity>; re-importing replaces them. tools/generate_level.js can be replaced by one call with the level's ASCII rows (AI_GUIDE 9.8).",
+        "Workaround removed in 5f77e6f: levels/level1.json and level2.json are ASCII maps built with scene.import_ascii (file mode with \"path\" since b85758f); generate_level composes rows and builds through the same command."
       ],
-      "engineIssue": "ae8bb15"
+      "engineIssue": "b807902"
     },
     {
       "id": "FB-0015",
@@ -354,10 +354,10 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: no audio log / assertion in the test harness.",
-        "Fixed in ebb054d: game.audioLog() lists every sound played since the test started ({frame, path, volume, bus, source, ok}); assert with expect(game.audioLog()).toContainPlayed(\"jump.wav\", { times: 1 }) (alias toHavePlayed). MCP/CLI agents use the audio.log command. tests/platformer.test.js now asserts the jump, coin, stomp, hurt and win sounds."
+        "Still open after fcb4af1: no audio log / assertion in the test harness.",
+        "Fixed in a96d1f6: game.audioLog() lists every sound played since the test started ({frame, path, volume, bus, source, ok}); assert with expect(game.audioLog()).toContainPlayed(\"jump.wav\", { times: 1 }) (alias toHavePlayed). MCP/CLI agents use the audio.log command. tests/platformer.test.js now asserts the jump, coin, stomp, hurt and win sounds."
       ],
-      "engineIssue": "ebb054d"
+      "engineIssue": "a96d1f6"
     },
     {
       "id": "FB-0016",
@@ -376,7 +376,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: tilemap collision rules are written in engine/physics/include/fa/physics/physics.h (merged row boxes, friction 0.5, not one-way, no trigger events) but not in docs/*.md.",
+        "Still open after fcb4af1: tilemap collision rules are written in engine/physics/include/fa/physics/physics.h (merged row boxes, friction 0.5, not one-way, no trigger events) but not in docs/*.md.",
         "Docs: AI_GUIDE 9.8 documents tilemap collision (merging, solidTiles, origin, one-way via separate oneWay entity)."
       ],
       "engineIssue": "this release"
@@ -392,7 +392,7 @@
       "severity": "major",
       "title": "Commands only edit the running world",
       "missing": "scene.import_ascii, scene.load and scene.save act on the running world (scene.load stops audio and resets physics), so a generator must load a base scene, import, save and reload the previous scene, losing unsaved runtime state.",
-      "workaround": "generate_level loaded the base scene, imported, saved and restored the running scene (9dc7fd5).",
+      "workaround": "generate_level loaded the base scene, imported, saved and restored the running scene (5f77e6f).",
       "workaroundFiles": [
         "tools/generate_level.js"
       ],
@@ -400,9 +400,9 @@
       "effort": "medium",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "cc789f7",
+      "engineIssue": "b85758f",
       "notes": [
-        "Fixed in cc789f7: scene.import_ascii {path, from, dryRun} edits a scene FILE in a scratch world and never touches the running game; generate_level uses it."
+        "Fixed in b85758f: scene.import_ascii {path, from, dryRun} edits a scene FILE in a scratch world and never touches the running game; generate_level uses it."
       ]
     },
     {
@@ -421,9 +421,9 @@
       "effort": "small",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "cc789f7",
+      "engineIssue": "b85758f",
       "notes": [
-        "Fixed in cc789f7: .factoria/tmp/ is a scratch folder where scene.save, scene.import_ascii path, fs.write, fs.edit and fs.delete may all write and delete; the rest of .factoria/ is managed by the engine."
+        "Fixed in b85758f: .factoria/tmp/ is a scratch folder where scene.save, scene.import_ascii path, fs.write, fs.edit and fs.delete may all write and delete; the rest of .factoria/ is managed by the engine."
       ]
     },
     {
@@ -442,9 +442,9 @@
       "effort": "small",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "cc789f7",
+      "engineIssue": "b85758f",
       "notes": [
-        "Fixed in cc789f7: input paths (--input, @args, --batch-file) try the current directory, then the project; a missing file lists every location tried. Outputs are relative to the current directory and reported as absolute paths."
+        "Fixed in b85758f: input paths (--input, @args, --batch-file) try the current directory, then the project; a missing file lists every location tried. Outputs are relative to the current directory and reported as absolute paths."
       ]
     },
     {
@@ -463,9 +463,9 @@
       "effort": "small",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "cc789f7",
+      "engineIssue": "b85758f",
       "notes": [
-        "Fixed in cc789f7: the map files carry \"path\"; save without path is refused (unsafe_save) when the running scene is only the implicit mainScene."
+        "Fixed in b85758f: the map files carry \"path\"; save without path is refused (unsafe_save) when the running scene is only the implicit mainScene."
       ]
     },
     {
@@ -488,9 +488,9 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Fixed in 6e5b5b2: scene.import_ascii takes edits {\"<entity id>\": {\"<Component>\": {fields}}} in file mode, applied like scene.set_component before the file is written. Workaround removed: tools/generate_level.js passes from + edits and no longer writes a scratch base copy."
+        "Fixed in 81ee622: scene.import_ascii takes edits {\"<entity id>\": {\"<Component>\": {fields}}} in file mode, applied like scene.set_component before the file is written. Workaround removed: tools/generate_level.js passes from + edits and no longer writes a scratch base copy."
       ],
-      "engineIssue": "6e5b5b2"
+      "engineIssue": "81ee622"
     },
     {
       "id": "FB-0022",
@@ -509,9 +509,9 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Fixed in 6e5b5b2: fs::write_bytes (and the tooling writer behind fs.write, scaffold and export) writes a temporary file next to the target and renames it over it; on any failure the original is left untouched."
+        "Fixed in 81ee622: fs::write_bytes (and the tooling writer behind fs.write, scaffold and export) writes a temporary file next to the target and renames it over it; on any failure the original is left untouched."
       ],
-      "engineIssue": "6e5b5b2"
+      "engineIssue": "81ee622"
     },
     {
       "id": "FB-0023",
@@ -530,9 +530,9 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Fixed in 303db3e: assets.textureSize(path) returns { width, height }, the same cached size entity.bounds() uses (32 x 32 for a missing file)."
+        "Fixed in ae3ace4: assets.textureSize(path) returns { width, height }, the same cached size entity.bounds() uses (32 x 32 for a missing file)."
       ],
-      "engineIssue": "303db3e"
+      "engineIssue": "ae3ace4"
     },
     {
       "id": "FB-0024",
@@ -553,9 +553,9 @@
       "suggestion": "Have the generator (or scene.import_ascii) write `prefab` references only, and let validate warn about a committed scene whose entity repeats the components of its prefab.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "46f61b78",
+      "engineIssue": "4ac07539",
       "notes": [
-        "Fixed in 46f61b78: `validate` warns about a scene entity that repeats a prefab's components inline (with the replacement {id, prefab, differences} entry in the hint), and scene.import_ascii / scene.save write prefab references (M101.9a). sky-hopper's scenes validate clean."
+        "Fixed in 4ac07539: `validate` warns about a scene entity that repeats a prefab's components inline (with the replacement {id, prefab, differences} entry in the hint), and scene.import_ascii / scene.save write prefab references (M101.9a). sky-hopper's scenes validate clean."
       ]
     },
     {
@@ -578,7 +578,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Fixed in 252170da: IK2D.groundMask / groundReach / groundOffset / groundRest aim the chain at the floor under the target (the swing lift above groundRest is kept, the character's own colliders are ignored); the clip's gait markers are the IK targets now and feet() only switches groundMask off in the air."
+        "Fixed in d60b45d5: IK2D.groundMask / groundReach / groundOffset / groundRest aim the chain at the floor under the target (the swing lift above groundRest is kept, the character's own colliders are ignored); the clip's gait markers are the IK targets now and feet() only switches groundMask off in the air."
       ]
     },
     {
@@ -602,9 +602,9 @@
       "suggestion": "Nothing to change in the engine, the error already names the right path; a `factoria validate` check of clip paths against the prefab would find it before running.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "c96ddbbd",
+      "engineIssue": "fcc80ffa",
       "notes": [
-        "Fixed in c96ddbbd (M42.3): factoria validate checks every clip track path against the scene or prefab (tools/common/src/validate_anim.cpp, check_animator_clips) and names the right path (triage 2026-11-10)."
+        "Fixed in fcc80ffa (M42.3): factoria validate checks every clip track path against the scene or prefab (tools/common/src/validate_anim.cpp, check_animator_clips) and names the right path (triage 2026-11-10)."
       ]
     },
     {

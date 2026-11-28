@@ -22,9 +22,9 @@
       "suggestion": "Have 'factoria new' write the real generated d.ts, and make 'factoria validate' warn when the stub is still present.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: factoria new writes the real generated typings; refresh with 'factoria api --dts --project .'."
+        "Fixed in fcb4af1: factoria new writes the real generated typings; refresh with 'factoria api --dts --project .'."
       ]
     },
     {
@@ -44,7 +44,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: docs/AI_GUIDE.md still marks working CLI commands (planned); the commands work (verified).",
+        "Still open after fcb4af1: docs/AI_GUIDE.md still marks working CLI commands (planned); the commands work (verified).",
         "Docs: stale (planned) markers removed from AI_GUIDE/EXTENDING."
       ],
       "engineIssue": "this release"
@@ -70,9 +70,9 @@
       "suggestion": "Accept Vec2/[x,y] for Transform.position in 2D (z=0) in spawnPrefab/spawn and fix the doc examples; do not truncate error text.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: spawn / spawnPrefab / scene.spawn accept vec2(x,y), [x,y] or [x,y,z] for Transform.position (2D z=0). Verified."
+        "Fixed in fcb4af1: spawn / spawnPrefab / scene.spawn accept vec2(x,y), [x,y] or [x,y,z] for Transform.position (2D z=0). Verified."
       ]
     },
     {
@@ -95,7 +95,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: Text/Shape2D/Sprite got an 'anchor' field, but the 2d-empty template (pivot [0,0] at [24,24]) and docs/AI_GUIDE.md 9.4 still use the clipped pivot (verified: the title is cut off at the top edge).",
+        "Still open after fcb4af1: Text/Shape2D/Sprite got an 'anchor' field, but the 2d-empty template (pivot [0,0] at [24,24]) and docs/AI_GUIDE.md 9.4 still use the clipped pivot (verified: the title is cut off at the top edge).",
         "Template HUD pivot fixed; AI_GUIDE explains screen-space anchor + pivot (Text defaults to pivot [0,1])."
       ],
       "engineIssue": "this release"
@@ -119,9 +119,9 @@
       "suggestion": "Add --press/--input replay to 'factoria call' (like 'run --input'), fix the help example (Transform, not Transform2D).",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: factoria call/session accept --scene, --frames-before, --press a,b and --input replay.json; use --batch to step and inspect on one engine."
+        "Fixed in fcb4af1: factoria call/session accept --scene, --frames-before, --press a,b and --input replay.json; use --batch to step and inspect on one engine."
       ]
     },
     {
@@ -145,9 +145,9 @@
       "suggestion": "Instantiate behaviours synchronously in spawn/spawnPrefab (props applied, onStart deferred), and document Script.props overrides in spawnPrefab/world.spawn.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: Behaviours are constructed synchronously after spawn/spawnPrefab/entity.add('Script')/game.load, with Script.props applied; e.behaviour is usable immediately (onStart still runs at the next step)."
+        "Fixed in fcb4af1: Behaviours are constructed synchronously after spawn/spawnPrefab/entity.add('Script')/game.load, with Script.props applied; e.behaviour is usable immediately (onStart still runs at the next step)."
       ]
     },
     {
@@ -169,9 +169,9 @@
       "suggestion": "Document the interaction, add an 'oneShot'/'destroyWhenDone' field, and a script API emitter.burst(n).",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: ParticleEmitter.burst fires with emitting:false; use particles.burst(entity, n) or autoDestroy:true for one-shots."
+        "Fixed in fcb4af1: ParticleEmitter.burst fires with emitting:false; use particles.burst(entity, n) or autoDestroy:true for one-shots."
       ]
     },
     {
@@ -196,11 +196,11 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Partly fixed in e2b0090: blend 'additive'|'multiply' on Sprite/Shape2D/ParticleEmitter. Still open: no bloom / post-processing for a real glow.",
-        "Fixed in 40b049c (bloom half; additive blend shipped in e2b0090): set \"bloom\": true on the Camera (bloomThreshold, bloomIntensity, bloomRadius) over a dark clearColor and use \"blend\": \"additive\" on the bright Sprites/Shapes/particles (AI_GUIDE 9.20). The hand-blurred glow PNGs are no longer needed.",
-        "Workaround removed in 804c00d: the glow PNGs are deleted; every scene uses additive Shape2D/particles with Camera.bloom (since f649d8d the game scene sets bloomScreenSpace: false for a crisp HUD)."
+        "Partly fixed in fcb4af1: blend 'additive'|'multiply' on Sprite/Shape2D/ParticleEmitter. Still open: no bloom / post-processing for a real glow.",
+        "Fixed in 8394163 (bloom half; additive blend shipped in fcb4af1): set \"bloom\": true on the Camera (bloomThreshold, bloomIntensity, bloomRadius) over a dark clearColor and use \"blend\": \"additive\" on the bright Sprites/Shapes/particles (AI_GUIDE 9.20). The hand-blurred glow PNGs are no longer needed.",
+        "Workaround removed in 799c267: the glow PNGs are deleted; every scene uses additive Shape2D/particles with Camera.bloom (since 2b2f375 the game scene sets bloomScreenSpace: false for a crisp HUD)."
       ],
-      "engineIssue": "40b049c"
+      "engineIssue": "8394163"
     },
     {
       "id": "FB-0009",
@@ -221,9 +221,9 @@
       "suggestion": "Use a temporary save dir for test/headless runs by default (flag to keep), and reset storage between test files like RNG/input.",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e2b0090",
+      "engineIssue": "fcb4af1",
       "notes": [
-        "Fixed in e2b0090: Tests and headless runs/calls use in-memory storage by default (fresh per test file); pass --persist-storage to use the real save file."
+        "Fixed in fcb4af1: Tests and headless runs/calls use in-memory storage by default (fresh per test file); pass --persist-storage to use the real save file."
       ]
     },
     {
@@ -246,7 +246,7 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: unknown replay keys are still silently ignored (verified), and console.log from tests is only visible with --log-level info.",
+        "Still open after fcb4af1: unknown replay keys are still silently ignored (verified), and console.log from tests is only visible with --log-level info.",
         "Docs: AI_GUIDE section 11 documents the input replay format (incl. mouse); factoria test now shows console output per test."
       ],
       "engineIssue": "this release"
@@ -262,14 +262,14 @@
       "severity": "minor",
       "title": "Bloom glows the HUD too",
       "missing": "Camera bloom applies to the whole finished frame, so white HUD text glows; there is no way to exclude screen-space items.",
-      "workaround": "Accepted a slight HUD glow (804c00d).",
+      "workaround": "Accepted a slight HUD glow (799c267).",
       "suggestion": "A camera flag that draws screen-space items after the bloom pass.",
       "effort": "medium",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "f649d8d",
+      "engineIssue": "2b2f375",
       "notes": [
-        "Fixed in f649d8d: Camera.bloomScreenSpace: false draws the HUD after bloom, so it stays crisp; the game scene uses it."
+        "Fixed in 2b2f375: Camera.bloomScreenSpace: false draws the HUD after bloom, so it stays crisp; the game scene uses it."
       ]
     },
     {
@@ -291,9 +291,9 @@
       "effort": "small",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "afbd0e9",
+      "engineIssue": "07b0582",
       "notes": [
-        "Fixed in afbd0e9: prefab.save {id, path} saves an entity as a prefab in the canonical layout and scene.format {paths?, check?} rewrites or checks scene/prefab files; the hand-formatted prefabs check as canonical."
+        "Fixed in 07b0582: prefab.save {id, path} saves an entity as a prefab in the canonical layout and scene.format {paths?, check?} rewrites or checks scene/prefab files; the hand-formatted prefabs check as canonical."
       ]
     },
     {
@@ -312,9 +312,9 @@
       "effort": "small",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "f649d8d",
+      "engineIssue": "2b2f375",
       "notes": [
-        "Fixed in f649d8d: Shape2D shape 'diamond' (filled or outlined); the chaser uses it."
+        "Fixed in 2b2f375: Shape2D shape 'diamond' (filled or outlined); the chaser uses it."
       ]
     },
     {
@@ -333,9 +333,9 @@
       "effort": "small",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "f649d8d",
+      "engineIssue": "2b2f375",
       "notes": [
-        "Fixed in f649d8d: pivot [0.5, 0.3333] is a triangle's centroid (documented and tested); the ship and the shooter use it."
+        "Fixed in 2b2f375: pivot [0.5, 0.3333] is a triangle's centroid (documented and tested); the ship and the shooter use it."
       ]
     },
     {
@@ -355,9 +355,9 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Fixed in 2ff6faa: ParticleEmitter.space (\"world\" | \"screen\") and anchor, like Sprite and Shape2D. Screen particles use design pixels, keep direction/gravity as in the world (90 = up) and are drawn in the HUD pass, so Camera.bloomScreenSpace = false keeps them crisp."
+        "Fixed in 6ec0c78: ParticleEmitter.space (\"world\" | \"screen\") and anchor, like Sprite and Shape2D. Screen particles use design pixels, keep direction/gravity as in the world (90 = up) and are drawn in the HUD pass, so Camera.bloomScreenSpace = false keeps them crisp."
       ],
-      "engineIssue": "2ff6faa"
+      "engineIssue": "6ec0c78"
     },
     {
       "id": "FB-0016",
@@ -376,9 +376,9 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Fixed in 2ff6faa: triangle outlines grow inward (mitred, capped at the inradius) like rectangle, diamond, polygon and star; the 2d_shapes and 2d_bloom goldens were regenerated."
+        "Fixed in 6ec0c78: triangle outlines grow inward (mitred, capped at the inradius) like rectangle, diamond, polygon and star; the 2d_shapes and 2d_bloom goldens were regenerated."
       ],
-      "engineIssue": "2ff6faa"
+      "engineIssue": "6ec0c78"
     },
     {
       "id": "FB-0017",
@@ -397,9 +397,9 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Fixed in 2ff6faa: Shape2D shape \"polygon\" (sides, default 6) and \"star\" (points, default 5, innerRadius 0.5), on the ellipse inscribed in the size box, first vertex up, filled or outlined inward."
+        "Fixed in 6ec0c78: Shape2D shape \"polygon\" (sides, default 6) and \"star\" (points, default 5, innerRadius 0.5), on the ellipse inscribed in the size box, first vertex up, filled or outlined inward."
       ],
-      "engineIssue": "2ff6faa"
+      "engineIssue": "6ec0c78"
     },
     {
       "id": "FB-0018",
@@ -418,9 +418,9 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "Fixed in 6e5b5b2: scene.format {\"check\": true, \"strict\": true} fails (error not_canonical, non-zero exit from factoria call) when a file is not canonical, and project.validate warns once per non-canonical scene/prefab in scenes/ and prefabs/."
+        "Fixed in 81ee622: scene.format {\"check\": true, \"strict\": true} fails (error not_canonical, non-zero exit from factoria call) when a file is not canonical, and project.validate warns once per non-canonical scene/prefab in scenes/ and prefabs/."
       ],
-      "engineIssue": "6e5b5b2"
+      "engineIssue": "81ee622"
     },
     {
       "id": "FB-0019",
@@ -442,9 +442,9 @@
       "effort": "small",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e10a8c7d",
+      "engineIssue": "bc90d6e9",
       "notes": [
-        "Fixed in e10a8c7d: SpriteAnimator.loopMode (inherit | loop | once) overrides the clip's loop flag; the bool loop stays as an alias (false = once)."
+        "Fixed in bc90d6e9: SpriteAnimator.loopMode (inherit | loop | once) overrides the clip's loop flag; the bool loop stays as an alias (false = once)."
       ]
     },
     {
@@ -468,9 +468,9 @@
       "status": "fixed-in-engine",
       "notes": [
         "Moot for this example from M56.5: the loop became the adaptive song assets/music/score.song.json, so the baked loop.wav and its source are gone. The checker's behaviour on a crossfaded loop is unchanged.",
-        "Fixed in dfd754a1: assets.check_mix skips document sources (skipped array) and judges loop seams across the loop points."
+        "Fixed in 461d87fe: assets.check_mix skips document sources (skipped array) and judges loop seams across the loop points."
       ],
-      "engineIssue": "dfd754a1"
+      "engineIssue": "461d87fe"
     },
     {
       "id": "FB-0021",
@@ -492,9 +492,9 @@
       "effort": "small",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "b781d772",
+      "engineIssue": "545d653d",
       "notes": [
-        "Fixed in b781d772 (M101.2): `entity.music.appliedIntensity` (what the layers follow, also `status.appliedIntensity`) and `requestedIntensity` (the last value set) sit beside `intensity`, and docs/MUSIC.md says which is which."
+        "Fixed in 545d653d (M101.2): `entity.music.appliedIntensity` (what the layers follow, also `status.appliedIntensity`) and `requestedIntensity` (the last value set) sit beside `intensity`, and docs/MUSIC.md says which is which."
       ]
     },
     {
@@ -517,9 +517,9 @@
       "effort": "small",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "b781d772",
+      "engineIssue": "545d653d",
       "notes": [
-        "Fixed in b781d772 (M101.2): `setIntensity`, `goToSection` and `crossfadeTo` return `{frame, time, quantize}`, the audio frame the change lands on, and `status.pendingSection` / `pendingAt` show it until then; the test reads them instead of stepping a bar blind."
+        "Fixed in 545d653d (M101.2): `setIntensity`, `goToSection` and `crossfadeTo` return `{frame, time, quantize}`, the audio frame the change lands on, and `status.pendingSection` / `pendingAt` show it until then; the test reads them instead of stepping a bar blind."
       ]
     }
   ]

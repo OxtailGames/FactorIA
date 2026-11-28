@@ -49,9 +49,9 @@
       "effort": "small",
       "occurrences": 1,
       "status": "fixed-in-engine",
-      "engineIssue": "e10a8c7d",
+      "engineIssue": "bc90d6e9",
       "notes": [
-        "Fixed in e10a8c7d: when cut-off areas refused more than half of the attempts, the generation_failed error says the sample's shape is the cause (rooms joined by one-cell passages, closed pockets) and the hint says how to fix the sample."
+        "Fixed in bc90d6e9: when cut-off areas refused more than half of the attempts, the generation_failed error says the sample's shape is the cause (rooms joined by one-cell passages, closed pockets) and the hint says how to fix the sample."
       ]
     },
     {

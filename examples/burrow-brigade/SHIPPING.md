@@ -88,7 +88,7 @@ The whole game is in `game.pak` (167 files, scripts compiled to bytecode). The e
 ### The macOS run (checked on this Mac)
 
 1. `"build/export/burrow-brigade-macos/Burrow Brigade.app/Contents/MacOS/burrow-brigade" --version` prints
-   `factoria_player 0.2.0 (build 1a7977932207)`, and `codesign --verify --deep --strict` passes on the app.
+   `factoria_player 0.2.0 (build cda3ef57990c)`, and `codesign --verify --deep --strict` passes on the app.
 2. The same binary with `--frames 300` opens a 2560x1440 Metal window, opens the audio device, loads
    `scenes/menu.scene.json` (98 entities), renders the frames and exits 0. With `--scene scenes/join.scene.json` it loads the
    join screen (17 entities) the same way. The app is an ad hoc signed arm64 bundle; sign and notarize it with

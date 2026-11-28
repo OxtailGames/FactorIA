@@ -28,7 +28,7 @@ import sys
 
 DEFAULT_SECONDS = 2.0
 
-# Seconds per test, from the green CI run 43625236861 (main at c570cd52, 2026-11-14), tests of 5 s or more. Refresh them from
+# Seconds per test, from the green CI run 43625236861 (main at 0fbeb5c1, 2026-11-14), tests of 5 s or more. Refresh them from
 # the "Test #n: name ... Passed x sec" lines of a newer green run when a shard gets much slower than the others.
 
 # ESTIMATES: the green run measured `tooling` as one test (230.1 s on Windows, 1135.1 s under ASan). It is now five ctest
