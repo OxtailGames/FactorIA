@@ -45,5 +45,7 @@ holds them in `private/` (`private/ROADMAP.md`, `private/done/`). What shipped i
    `private/done/README.md`) and leaves in the roadmap what it left open and the decisions later work has to respect
    ("Decisions of finished milestones"), so every agent that reads the roadmap reads open work.
 
-Layout of this folder: `inbox/`
-(submitted files, not yet triaged), and the in-repo examples under `examples/*/ENGINE_FEEDBACK.json`.
+Layout of this folder: `inbox/` (submitted files, not yet triaged), `fixed.json` (the gaps each release fixed,
+embedded in the binary: docs/ENGINE_FEEDBACK.md) and `agent-cost/` (what a game costs an AI with no context, one file
+per engine version, written by `scripts/agent-cost.sh`: docs/AI_COSTS.md). The examples of this repository keep their
+own entries in `examples/*/ENGINE_FEEDBACK.json`.
