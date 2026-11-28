@@ -41,9 +41,9 @@ holds them in `private/` (`private/ROADMAP.md`, `private/done/`). What shipped i
 2. picks the top work package, or the one with most blockers/majors per unit of size;
 3. hands the package to an engine agent with its entry ids and acceptance criteria;
 4. after the change merges, runs triage again and marks the entries `fixed-in-engine`;
-5. when a milestone is done, moves what it built to its own file `done/M<n>.md` (one line in `done/README.md`) and leaves in the roadmap what it
-   left open and the decisions later work has to respect ("Decisions of finished milestones"), so every agent that
-   reads the roadmap reads open work.
+5. when a milestone is done, moves what it built to its own file `private/done/M<n>.md` (one line in
+   `private/done/README.md`) and leaves in the roadmap what it left open and the decisions later work has to respect
+   ("Decisions of finished milestones"), so every agent that reads the roadmap reads open work.
 
 Layout of this folder: `inbox/`
 (submitted files, not yet triaged), and the in-repo examples under `examples/*/ENGINE_FEEDBACK.json`.
