@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# What a game costs an AI with no context (docs/AI_COSTS.md, "Measuring what a game costs an AI with no context"; ROADMAP M100.1).
+# What a game costs an AI with no context (docs/AI_COSTS.md, "Measuring what a game costs an AI with no context"; M100.1).
 #
 # Starts an AI CLI non-interactively in an EMPTY folder outside the repository, with only the installed `factoria` on the
 # PATH, gives it a fixed brief, records the whole transcript, then reports through `factoria call agent.cost` (tokens and

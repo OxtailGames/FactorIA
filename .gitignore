@@ -37,3 +37,6 @@ ai.local.json
 # golden images a failed comparison writes next to the committed one (docs/design/BUILDING_TESTS.md, "Golden images")
 *.actual.png
 *.profraw
+
+# The maintainers' private files, cloned here by hand; never committed in this repository.
+/private/

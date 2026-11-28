@@ -2,7 +2,7 @@ Part of [custom shaders](CUSTOM_SHADERS.md): the work packages P1 to P14 the des
 
 # Custom shaders: the work packages
 
-Sizes as in ROADMAP.md (S under a day, M 1-3 days, L a week+). Order: 1, then 2; 3 and 4 in parallel once 2 has
+Sizes as in the roadmap (S under a day, M 1-3 days, L a week+). Order: 1, then 2; 3 and 4 in parallel once 2 has
 fixed the twin format; 5 last. 6 is a sketch for when a game asks for it.
 
 ## P1. Template refactor of mesh.glsl and shadow.glsl (M, render)
